@@ -19,9 +19,9 @@ PRETRAINED = '/home/ubuntu/my_WASB/wasb_basketball_best.pth.tar'
 CONFIG_YAML = 'config_hrnet.yaml'
 OUTPUT_DIR = 'finetune_outputs'
 BATCH_SIZE = 4
-NUM_WORKERS = 2
+NUM_WORKERS = 0
 LR_HEAD = 1e-3
-EPOCHS = 10
+EPOCHS = 50
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -35,26 +35,37 @@ class BallCOCODataset(Dataset):
     def __init__(self, img_dir, ann_file, seq_len):
         from pycocotools.coco import COCO
         self.coco = COCO(ann_file)
-        imgs = sorted(self.coco.imgs.values(), key=lambda x: os.path.basename(x['file_name']))
-        self.ids = [img['id'] for img in imgs]
         self.img_dir = img_dir
         self.seq_len = seq_len
         self.transform = full_transform
 
+        # Collect unique base names like "triple_001", "triple_002", ...
+        all_names = [os.path.basename(img['file_name']) for img in self.coco.dataset['images']]
+        self.triples = sorted(list(set(fn.split('_f')[0] for fn in all_names)))
+
+        # Map triple → f1 filename → image ID (for heatmap annotation)
+        self.name_to_id = {
+            os.path.basename(img['file_name']): img['id']
+            for img in self.coco.dataset['images']
+        }
+
     def __len__(self):
-        return len(self.ids) - self.seq_len + 1
+        return len(self.triples)
 
     def __getitem__(self, idx):
-        seq = []
-        for i in range(idx, idx + self.seq_len):
-            info = self.coco.loadImgs(self.ids[i])[0]
-            fname = os.path.basename(info['file_name'].replace('\\', '/'))
-            path = os.path.join(self.img_dir, fname)
-            seq.append(Image.open(path).convert('RGB'))
+        triple_id = self.triples[idx]  # e.g., "triple_035"
+        frame_names = [f"{triple_id}_f{i}.png" for i in range(self.seq_len)]
+
+        # Load the 3 frames
+        seq = [Image.open(os.path.join(self.img_dir, fn)).convert('RGB') for fn in frame_names]
         inp = self.transform(seq)
-        mid_id = self.ids[idx + self.seq_len // 2]
+
+        # Load heatmap for middle frame (f1)
+        mid_name = f"{triple_id}_f1.png"
+        mid_id = self.name_to_id[mid_name]
         info_mid = self.coco.loadImgs(mid_id)[0]
         anns_mid = self.coco.loadAnns(self.coco.getAnnIds(imgIds=mid_id))
+
         h, w = inp.shape[-2:]
         hm = np.zeros((h, w), np.float32)
         for ann in anns_mid:
@@ -63,8 +74,10 @@ class BallCOCODataset(Dataset):
             sx, sy = w / info_mid['width'], h / info_mid['height']
             cx, cy = cx * sx, cy * sy
             yy, xx = np.ogrid[:h, :w]
-            g = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * 16))
+            g = np.exp(-((xx - cx)**2 + (yy - cy)**2) / (2 * 16))
             hm = np.maximum(hm, g)
+
+        print(f"[DEBUG] Sample idx {idx} → frames: {frame_names}")
         return inp, torch.from_numpy(hm).unsqueeze(0)
 
 # MODEL
@@ -80,8 +93,14 @@ optimizer = optim.Adam(
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 criterion = QualityFocalLoss(beta=2, auto_weight=False, scales=[0])
 
-train_loader = DataLoader(BallCOCODataset(TRAIN_IMG, TRAIN_ANN, SEQ_LEN), batch_size=BATCH_SIZE, shuffle=True, num_workers=NUM_WORKERS)
-val_loader = DataLoader(BallCOCODataset(VAL_IMG, VAL_ANN, SEQ_LEN), batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
+full_dataset = BallCOCODataset(TRAIN_IMG, TRAIN_ANN, SEQ_LEN)
+tiny_dataset = torch.utils.data.Subset(full_dataset, list(range(10)))
+train_loader = DataLoader(tiny_dataset, batch_size=2, shuffle=False)
+
+#train_loader = DataLoader(BallCOCODataset(TRAIN_IMG, TRAIN_ANN, SEQ_LEN), batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
+#val_loader = DataLoader(BallCOCODataset(VAL_IMG, VAL_ANN, SEQ_LEN), batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
+
+
 
 def run_epoch(loader, train=True):
     model.train() if train else model.eval()
@@ -89,10 +108,10 @@ def run_epoch(loader, train=True):
     for x, y in loader:
         x, y = x.to(DEVICE), y.to(DEVICE).float()
         out = model(x)[0]
-        print(f"Input shape: {x.shape} | Output shape: {out.shape}")
         pred = out[:, out.shape[1] // 2]
         probs = pred.sigmoid().clamp(1e-4, 1 - 1e-4)
         loss = criterion({0: probs.unsqueeze(1)}, {0: y})
+        print(f"Target: {y.shape}, Pred: {probs.shape}, Loss: {loss.item():.4f}") 
         if train:
             optimizer.zero_grad()
             loss.backward()
@@ -108,7 +127,7 @@ for ep in range(EPOCHS):
             if param.requires_grad:
                 print(f"[DEBUG] Trainable layer: {name}")
     tr = run_epoch(train_loader, True)
-    va = run_epoch(val_loader, False)
+    va = 0.0 #run_epoch(val_loader, False)
     scheduler.step()
     print(f"Epoch {ep + 1}/{EPOCHS}  train={tr:.4f}  val={va:.4f}")
     if va < best_val:
@@ -123,7 +142,7 @@ model.eval()
 out_dir = os.path.join(OUTPUT_DIR, "sanity_check_heatmaps")
 os.makedirs(out_dir, exist_ok=True)
 
-for x, y in val_loader:
+for x, y in train_loader:
     x, y = x.to(DEVICE), y.to(DEVICE).float()
     with torch.no_grad():
         out = model(x)[0]  # Tensor: (B, T, H, W)
