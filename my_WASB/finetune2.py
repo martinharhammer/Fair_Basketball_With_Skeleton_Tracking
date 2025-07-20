@@ -109,19 +109,13 @@ class BallCOCODataset(Dataset):
 # ----------------------------
 model = HRNet(cfg)
 model.init_weights(pretrained=PRETRAINED)
-for name, module in model.named_modules():
-    if 'final_layers' in name:
-        if hasattr(module, 'weight') and module.weight is not None:
-            torch.nn.init.normal_(module.weight, std=0.001)
-        if hasattr(module, 'bias') and module.bias is not None:
-            torch.nn.init.constant_(module.bias, 0)
 model.to(DEVICE)
 
 for name, param in model.named_parameters():
     param.requires_grad = any(x in name for x in ['stage4', 'final_layers'])
 
-pos_weight = torch.tensor([1.0]).to(DEVICE)  # or try 50.0 if needed
-criterion = torch.nn.MSELoss()
+pos_weight = torch.tensor([50.0]).to(DEVICE)  # or try 50.0 if needed
+criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=5e-4)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
