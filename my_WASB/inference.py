@@ -14,9 +14,11 @@ from postprocessor import WASBPostprocessor   # assumes you copied their postpro
 
 # --------------- CONFIGURATION ---------------
 CONFIG_PATH   = 'config_hrnet.yaml'
-#WEIGHTS_PATH  = 'finetune_outputs/best_full.pth.tar'
+#WEIGHTS_PATH  = 'finetune_outputs/best_val_model.pth'
 WEIGHTS_PATH = 'wasb_basketball_best.pth.tar'
-FRAMES_FOLDER = 'videos/knicks_pacers/frames'
+FRAMES_FOLDER = 'videos/china_indonesia/frames/'
+#FRAMES_FOLDER = 'test_finetune/frames_to_test'
+#OUTPUT_FOLDER = 'test_finetune/results'
 OUTPUT_FOLDER = 'outputs'       # base dir for everything
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
@@ -143,7 +145,7 @@ import os
 from glob import glob
 
 # -------- CONFIG --------
-overlay_folder = 'outputs/19-06-25_11-08-10'  # path to your overlay images
+overlay_folder = run_dir  # path to your overlay images
 output_path = 'output_video.mp4'             # final video file name
 fps = 30                                     # frames per second
 
