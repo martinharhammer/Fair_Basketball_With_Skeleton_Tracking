@@ -14,12 +14,13 @@ from postprocessor import WASBPostprocessor   # assumes you copied their postpro
 
 # --------------- CONFIGURATION ---------------
 CONFIG_PATH   = 'config_hrnet.yaml'
-#WEIGHTS_PATH  = 'finetune_outputs/best_val_model.pth'
-WEIGHTS_PATH = 'wasb_basketball_best.pth.tar'
+WEIGHTS_PATH  = 'training/finetune_outputs/best_finetuned.pth.tar'
+#WEIGHTS_PATH = 'wasb_basketball_best.pth.tar'
 FRAMES_FOLDER = 'videos/china_indonesia/frames/'
+#FRAMES_FOLDER = 'fiba_basketball2/train'
 #FRAMES_FOLDER = 'test_finetune/frames_to_test'
-#OUTPUT_FOLDER = 'test_finetune/results'
-OUTPUT_FOLDER = 'outputs'       # base dir for everything
+OUTPUT_FOLDER = 'test_finetune/results'
+#OUTPUT_FOLDER = 'outputs'       # base dir for everything
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -82,7 +83,8 @@ for i in tqdm(range(len(frames) - N_FRAMES + 1), desc='Inference'):
     # 3) postprocess → detections in original space
     results = post.run(preds, affine_mats)  # {batch_idx: {frame_idx: {scale: {...}}}
     scale    = list(preds.keys())[0]
-    mid      = N_FRAMES // 2
+    #mid      = N_FRAMES // 2
+    mid = 0
     dets     = results[0][mid][scale]       # {'xys': [...], 'scores': [...], 'hm':..., 'trans':...}
 
     hm_max = np.max(dets['hm'])
@@ -126,10 +128,10 @@ for i in tqdm(range(len(frames) - N_FRAMES + 1), desc='Inference'):
     # overlay the detection
     vis = orig.copy()
     if xy is not None:
-        cv2.circle(vis, (x_int, y_int), 5, (0,0,255), thickness=-1)
+        cv2.circle(vis, (x_int, y_int), 5, (0,255,0), thickness=-1)
         cv2.putText(
             vis, f'{score:.2f}', (x_int+6, y_int-6),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,255), 1,
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1,
             lineType=cv2.LINE_AA
         )
     vis_fname = f'overlay_{i+mid:06d}.png'

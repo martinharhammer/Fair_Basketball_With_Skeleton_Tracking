@@ -1,7 +1,6 @@
 name: hrnet
 frames_in: 3
-frames_out: 1 #changed from 3 to 1
-num_joints: 1 #added
+frames_out: 1
 inp_height: 288
 inp_width: 512
 out_height: 288
@@ -58,8 +57,7 @@ detector:
     use_hm_weight: false
 
 loss:
-  sub_name:      quality_focal
-  #sub_name: bce
+  sub_name: bce
   beta:          2.0
   auto_weight:   false
   scales:        [0]
