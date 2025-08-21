@@ -5,12 +5,11 @@ import datetime as dt
 from typing import Dict, List, Tuple, Optional
 
 # ---------------- Config (EDIT THESE) ----------------
-SCORING_EVENTS_JSONL = r"output\scoring_event_detection\scoring_events.jsonl"
-BALL_JSONL           = r"004\ball\detections.jsonl"
-OPENPOSE_DIR         = r"004\openpose"           # per-frame files live here
-FRAMES_DIR           = r"004\raw_frames"         # used to derive frame order (e.g., frame_001.png, ...)
-
-OUTPUT_DIR           = r"output\shooter_attribution"
+SCORING_EVENTS_JSONL = "output/scoring_event_detection/scoring_events.jsonl"
+BALL_JSONL           = "001/ball/detections.jsonl"
+OPENPOSE_DIR         = "001/players"
+FRAMES_DIR           = "001/raw_frames"
+OUTPUT_DIR           = "output/shooter_attribution"
 
 BACKTRACK_WINDOW     = 40       # look back from the scoring frame (inclusive)
 SKIP_FRAMES          = 20
@@ -108,6 +107,7 @@ def main():
     # frame order from disk (authoritative)
     frames = sort_frames(FRAMES_DIR)
     frame_to_idx = {f: i for i, f in enumerate(frames)}
+    events_with_shooter = 0
 
     with open(results, "w", encoding="utf-8") as fout:
         for scoring_detection in scoring_detections:
@@ -121,43 +121,97 @@ def main():
 
             scored_idx = frame_to_idx[event_frame]
             start_idx = max(0, scored_idx - SKIP_FRAMES)
-            stop_idx = max(0, start_idx - BACKTRACK_WINDOW)
+            stop_idx = max(0, scored_idx - BACKTRACK_WINDOW)
+
+            wrote = False
+            best_overall = (float("inf"), -1, "", (float("nan"), float("nan")))
+            best_overall_frame = None
             
-            for j in range(start_idx, stop_inclusive - 1, -1):
+            for j in range(start_idx, stop_idx - 1, -1):
                 f = frames[j]
-                 
-            ball_ann = ball_by_frame.get(f)
-            if not ball_ann:
-                continue
-            coords = ball_ann.get("coordinates")
-            if not coords or len(coords) < 2:
-                continue
-            bx, by = float(coords[0]), float(coords[1])
+                     
+                ball_ann = ball_annos.get(f)
+                if not ball_ann:
+                    continue
+                coords = ball_ann.get("coordinates")
+                if not coords or len(coords) < 2:
+                    continue
+                bx, by = float(coords[0]), float(coords[1])
 
-            stem = stem_of_filename(f)
-            js = read_openpose_for_frame(stem)  # expects "<stem>_keypoints.json"
-            if not js or "people" not in js:
-                continue
-            people = js.get("people", [])
+                stem = stem_of_filename(f)
+                js = read_openpose_for_frame(stem)  # expects "<stem>_keypoints.json"
+                if not js or "people" not in js:
+                    continue
+                people = js.get("people", [])
 
-            d, person_idx, wrist_label, wrist_xy = min_wrist_distance_to_ball(people, (bx, by))
+                d, person_idx, wrist_label, wrist_xy = min_wrist_to_ball_dist(people, (bx, by))
 
-            if d < best_overall[0]:
-                best_overall = (d, person_idx, wrist_label, wrist_xy)
-                best_overall_frame = f
+                # as fallback
+                if d < best_overall[0]:
+                    best_overall = (d, person_idx, wrist_label, wrist_xy)
+                    best_overall_frame = f
 
-            if d < DIST_THRESH_PX:
+                if d < DIST_THRESH_PX:
+                    out_line = {
+                        "scoring_event_count": scoring_event_count,
+                        "event_frame": event_frame,          # where score was detected
+                        "shooter_frame": f,                   # where contact found
+                        "shooter_person_index": person_idx,   # index in OpenPose "people"
+                        "min_dist_px": float(d),
+                        "below_threshold": True,
+                        "threshold_px": DIST_THRESH_PX,
+                        "wrist_label": wrist_label,           # "R_WRIST" / "L_WRIST"
+                    }
+                    fout.write(json.dumps(out_line) + "\n")
+                    events_with_shooter += 1
+                    wrote = True
+                    break  # ← early exit as desired
+
+            '''
+            if not shooter_found:
+                # fallback: closest in the window, even if above threshold
+                min_d, person_idx, wrist_label, wrist_xy = best_overall
                 out_line = {
                     "scoring_event_count": scoring_event_count,
-                    "event_frame": event_frame,          # where score was detected
-                    "shooter_frame": f,                   # where contact found
-                    "shooter_person_index": person_idx,   # index in OpenPose "people"
-                    "min_dist_px": float(d),
-                    "below_threshold": True,
+                    "event_frame": event_frame,
+                    "shooter_frame": best_overall_frame,
+                    "shooter_person_index": person_idx,
+                    "min_dist_px": None if math.isinf(min_d) else float(min_d),
+                    "below_threshold": False,
                     "threshold_px": DIST_THRESH_PX,
-                    "wrist_label": wrist_label,           # "R_WRIST" / "L_WRIST"
+                    "wrist_label": wrist_label,
                 }
                 fout.write(json.dumps(out_line) + "\n")
-                events_with_shooter += 1
-                shooter_found = True
-                break  # ← early exit as desired
+                if (best_overall_frame is not None) and (person_idx >= 0) and (not math.isinf(min_d)):
+                    events_with_shooter += 1
+          
+
+    with open(summary, "w", encoding="utf-8") as fsum:
+        json.dump(
+            {
+                "input": {
+                    "scoring_events_jsonl": SCORING_EVENTS_JSONL,
+                    "ball_jsonl": BALL_JSONL,
+                    "openpose_dir": OPENPOSE_DIR,
+                    "frames_dir": FRAMES_DIR,
+                },
+                "params": {
+                    "backtrack_window": BACKTRACK_WINDOW,
+                    "skip_frames": SKIP_FRAMES,
+                    "distance_threshold_px": DIST_THRESH_PX,
+                },
+                "frames_count": len(frames),
+                "scoring_events_in": total_scores,
+                "events_with_shooter_output": events_with_shooter,
+                "results_file": os.path.basename(results),
+            },
+            fsum,
+            indent=2,
+        )
+    '''
+
+    print(f"[INFO] wrote events -> {results}")
+    # print(f"[INFO] wrote summary -> {summary}")
+
+if __name__ == "__main__":
+    main()
