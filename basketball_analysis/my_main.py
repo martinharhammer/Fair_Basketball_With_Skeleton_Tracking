@@ -8,22 +8,25 @@ from ball_aquisition import BallAquisitionDetector
 from pass_and_interception_detector import PassAndInterceptionDetector
 from tactical_view_converter import TacticalViewConverter
 from speed_and_distance_calculator import SpeedAndDistanceCalculator
+from my_detectors import HoopDetector, HoopFromJSONL, run_scoring_from_files
 from drawers import (
     PlayerTracksDrawer,
     BallTracksDrawer,
     CourtKeypointDrawer,
     TeamBallControlDrawer,
-    FrameNumberDrawer,
+    #FrameNumberDrawer,
     PassInterceptionDrawer,
     TacticalViewDrawer,
     SpeedAndDistanceDrawer,
-    HoopShadowDrawer
+    HoopShadowDrawer,
+    HoopBoxDrawer,
 )
 from configs import(
     STUBS_DEFAULT_PATH,
     PLAYER_DETECTOR_PATH,
     BALL_DETECTOR_PATH,
     COURT_KEYPOINT_DETECTOR_PATH,
+    HOOP_DETECTOR_PATH,
     OUTPUT_VIDEO_PATH
 )
 
@@ -63,13 +66,37 @@ def main():
                                       )
     print(f"[Main] Player tracks collected for {len(player_tracks)} frames")
 
+    print("[Main] Loading hoop detections from JSONL (xywh center → xyxy)...")
+    hoop_loader = HoopFromJSONL()
+    hoop_detections = hoop_loader.get_detections(
+        frames=video_frames,
+        read_from_stub=False,
+        stub_path=os.path.join(args.stub_path, 'hoop_dets_stubs.pkl'),
+        jsonl_path="/home/ubuntu/scoring_detection/001/hoop/detections.jsonl",
+        raw_frames_dir="/home/ubuntu/scoring_detection/001/raw_frames",  # helps align if frame names aren’t in `frames`
+        keep_top_k=1
+    )
+    print(f"[Main] Hoop detections collected for {len(hoop_detections)} frames")
+
     print("[Main] Getting ball tracks...")
     ball_tracks = ball_tracker.get_object_tracks(video_frames,
                                                  read_from_stub=False,
                                                  stub_path=os.path.join(args.stub_path, 'ball_track_stubs.pkl'),
-                                                 anno_path='/home/ubuntu/basketball_analysis/ball_detections/004/detections.jsonl'
+                                                 anno_path='/home/ubuntu/basketball_analysis/ball_detections/001/detections.jsonl'
                                                  )
     print(f"[Main] Ball tracks collected for {len(ball_tracks)} frames")
+
+    # Detect scoring events (uses hoop_detections + post-processed ball_tracks)
+    print("[Main] Detecting scoring events...")
+
+    run_scoring_from_files(
+        frames_dir="/home/ubuntu/scoring_detection/001/raw_frames",
+        hoop_annos_path="/home/ubuntu/scoring_detection/001/hoop/detections.jsonl",
+        ball_annos_path="/home/ubuntu/scoring_detection/001/ball/detections.jsonl",
+        output_dir=os.path.join(args.stub_path, "scoring_event_detection"),
+        output_name="scoring_events.jsonl",
+        draw_debug=False,
+    )
 
     ## Run KeyPoint Extractor
     print("[Main] Getting court keypoints...")
@@ -135,10 +162,11 @@ def main():
     ball_tracks_drawer = BallTracksDrawer()
     court_keypoint_drawer = CourtKeypointDrawer()
     team_ball_control_drawer = TeamBallControlDrawer()
-    frame_number_drawer = FrameNumberDrawer()
+    #frame_number_drawer = FrameNumberDrawer()
     pass_and_interceptions_drawer = PassInterceptionDrawer()
     tactical_view_drawer = TacticalViewDrawer()
     speed_and_distance_drawer = SpeedAndDistanceDrawer()
+    hoop_box_drawer = HoopBoxDrawer()
 
     ## Draw object Tracks
     print("[Main] Drawing player tracks...")
@@ -155,7 +183,7 @@ def main():
 
     ## Draw Frame Number
     print("[Main] Drawing frame numbers...")
-    output_video_frames = frame_number_drawer.draw(output_video_frames)
+    #output_video_frames = frame_number_drawer.draw(output_video_frames)
 
     # Draw Team Ball Control
     print("[Main] Drawing team ball control...")
@@ -188,6 +216,11 @@ def main():
                                                     player_assignment,
                                                     ball_aquisition,
                                                     )
+
+    ## Draw Hoop BBox
+    print("[Main] Drawing hoop boxes...")
+    output_video_frames = hoop_box_drawer.draw(output_video_frames, hoop_detections)
+
     ## Draw Hoop Shadow (camera frame)
     print("[Main] Drawing hoop shadows...")
     hoop_shadow_drawer = HoopShadowDrawer(

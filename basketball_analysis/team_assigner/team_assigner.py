@@ -20,8 +20,8 @@ class TeamAssigner:
         team_2_class_name (str): Description of Team 2's jersey appearance.
     """
     def __init__(self,
-                 team_1_class_name= "white shirt",
-                 team_2_class_name= "dark blue shirt",
+                 team_1_class_name= "white shirt white shorts",
+                 team_2_class_name= "red shirt red shorts",
                  ):
         """
         Initialize the TeamAssigner with specified team jersey descriptions.
