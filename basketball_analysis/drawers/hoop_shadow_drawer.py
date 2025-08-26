@@ -44,22 +44,25 @@ class HoopShadowDrawer:
                            (x + self.box//2, y + self.box//2), self.color, 2)
         cv2.putText(img, text, (x + self.box, y - self.box),
                     cv2.FONT_HERSHEY_SIMPLEX, self.label_scale, self.color, self.label_thickness, cv2.LINE_AA)
-
-    def draw(self, frames, court_keypoints_per_frame):
+def draw(self, frames, court_keypoints_per_frame, return_points=False):
         out = []
+        shadow_pts = []  # <-- collect per-frame shadow point(s)
         for idx, (frame, kp_obj) in enumerate(zip(frames, court_keypoints_per_frame)):
             img = frame.copy()
+            frame_shadow_pts = {"LH": None, "RH": None}  # <- could be None if fail
+
             if kp_obj is None or kp_obj.xy is None or len(kp_obj.xy) == 0:
-                print(f"[HoopShadow] Frame {idx}: no keypoints, skipping")
-                out.append(img); continue
+                out.append(img)
+                shadow_pts.append(frame_shadow_pts if return_points else None)
+                continue
 
             frame_kps = kp_obj.xy.tolist()[0]
             valid_idx = [i for i, pt in enumerate(frame_kps) if pt[0] > 0 and pt[1] > 0]
-            print(f"[HoopShadow] Frame {idx}: {len(valid_idx)} valid keypoints")
 
             if len(valid_idx) < 4:
-                print(f"[HoopShadow] Frame {idx}: not enough keypoints for homography")
-                out.append(img); continue
+                out.append(img)
+                shadow_pts.append(frame_shadow_pts if return_points else None)
+                continue
 
             source_points = np.array([frame_kps[i] for i in valid_idx], dtype=np.float32)
             target_points = np.array([self.key_points[i] for i in valid_idx], dtype=np.float32)
@@ -68,14 +71,20 @@ class HoopShadowDrawer:
                 H = Homography(source_points, target_points)      # camera → tactical
                 lh_img = H.inverse_transform_points(self.left_hoop_tv)[0]
                 rh_img = H.inverse_transform_points(self.right_hoop_tv)[0]
-                print(f"[HoopShadow] Frame {idx}: LH={lh_img}, RH={rh_img}")
 
+                # store for metrics
+                frame_shadow_pts["LH"] = (float(lh_img[0]), float(lh_img[1]))
+                frame_shadow_pts["RH"] = (float(rh_img[0]), float(rh_img[1]))
+
+                # draw as before
                 self._draw_marker(img, lh_img, "LH")
                 self._draw_marker(img, rh_img, "RH")
 
             except Exception as e:
-                print(f"[HoopShadow] Frame {idx}: homography failed ({e})")
+                pass  # keep Nones
 
             out.append(img)
-        return out
+            if return_points:
+                shadow_pts.append(frame_shadow_pts)
 
+        return (out, shadow_pts) if return_points else out

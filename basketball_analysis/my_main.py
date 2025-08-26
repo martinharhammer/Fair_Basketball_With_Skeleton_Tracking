@@ -8,7 +8,9 @@ from ball_aquisition import BallAquisitionDetector
 from pass_and_interception_detector import PassAndInterceptionDetector
 from tactical_view_converter import TacticalViewConverter
 from speed_and_distance_calculator import SpeedAndDistanceCalculator
-from my_detectors import HoopDetector, HoopFromJSONL, run_scoring_from_files
+from my_detectors import HoopDetector, HoopFromJSONL, run_scoring_from_files, run_identify_shooter
+from analysis_logic.hoop_shadow_point import compute_and_save_shadow_points
+from drawers.hoop_shadow_line_drawer import HoopShadowLineDrawer
 from drawers import (
     PlayerTracksDrawer,
     BallTracksDrawer,
@@ -18,7 +20,7 @@ from drawers import (
     PassInterceptionDrawer,
     TacticalViewDrawer,
     SpeedAndDistanceDrawer,
-    HoopShadowDrawer,
+    #HoopShadowDrawer,
     HoopBoxDrawer,
 )
 from configs import(
@@ -98,6 +100,20 @@ def main():
         draw_debug=False,
     )
 
+    # --- Shooter attribution (append directly to scoring_events.jsonl) ---
+    scoring_jsonl = os.path.join(args.stub_path, "scoring_event_detection", "scoring_events.jsonl")
+    ball_jsonl    = "/home/ubuntu/scoring_detection/001/ball/detections.jsonl"
+    openpose_dir  = "/home/ubuntu/scoring_detection/001/players"
+    frames_dir    = "/home/ubuntu/scoring_detection/001/raw_frames"
+
+    run_identify_shooter( 
+        scoring_events_jsonl=scoring_jsonl,
+        ball_jsonl=ball_jsonl,
+        openpose_dir=openpose_dir,
+        frames_dir=frames_dir,
+    )
+    # ---------------------------------------------------
+
     ## Run KeyPoint Extractor
     print("[Main] Getting court keypoints...")
     court_keypoints_per_frame = court_keypoint_detector.get_court_keypoints(video_frames,
@@ -106,7 +122,6 @@ def main():
                                                                     )
     print(f"[Main] Court keypoints collected for {len(court_keypoints_per_frame)} frames")
 
-    # Remove Wrong Ball Detections
     print("[Main] Removing wrong ball detections...")
     ball_tracks = ball_tracker.remove_wrong_detections(ball_tracks)
     # Interpolate Ball Tracks
@@ -142,9 +157,34 @@ def main():
 
     print("[Main] Validating court keypoints...")
     court_keypoints_per_frame = tactical_view_converter.validate_keypoints(court_keypoints_per_frame)
+
+    print("[Main] Computing hoop shadow points JSONL...")
+    frames_dir = "/home/ubuntu/scoring_detection/001/raw_frames"
+    frame_files = sorted(
+        f for f in os.listdir(frames_dir)
+        if f.lower().endswith((".png", ".jpg", ".jpeg"))
+    )
+
+    # sanity check: make sure all three lists align
+    assert len(frame_files) == len(hoop_detections) == len(court_keypoints_per_frame), \
+        f"length mismatch: frames={len(frame_files)}, hoop={len(hoop_detections)}, kps={len(court_keypoints_per_frame)}"
+
+    shadow_jsonl = os.path.join(args.stub_path, "hoop_shadow_points.jsonl")
+
+    compute_and_save_shadow_points(
+        frame_files=frame_files,
+        hoop_detections=hoop_detections,
+        court_keypoints_per_frame=court_keypoints_per_frame,  # validated kps
+        tactical_view_converter=tactical_view_converter,
+        output_jsonl=shadow_jsonl,
+        # angle_thresh_deg=10.0, min_dy_px=2.0  # optional
+    )
+
+
     print("[Main] Transforming players to tactical view...")
     tactical_player_positions = tactical_view_converter.transform_players_to_tactical_view(court_keypoints_per_frame,player_tracks)
 
+    # Remove Wrong Ball Detections
     # Speed and Distance Calculator
     print("[Main] Calculating speed and distance...")
     speed_and_distance_calculator = SpeedAndDistanceCalculator(
@@ -181,6 +221,7 @@ def main():
     print("[Main] Drawing court keypoints...")
     output_video_frames = court_keypoint_drawer.draw(output_video_frames, court_keypoints_per_frame)
 
+    '''
     ## Draw Frame Number
     print("[Main] Drawing frame numbers...")
     #output_video_frames = frame_number_drawer.draw(output_video_frames)
@@ -190,7 +231,6 @@ def main():
     output_video_frames = team_ball_control_drawer.draw(output_video_frames,
                                                         player_assignment,
                                                         ball_aquisition)
-
     # Draw Passes and Interceptions
     print("[Main] Drawing passes and interceptions...")
     output_video_frames = pass_and_interceptions_drawer.draw(output_video_frames,
@@ -204,6 +244,7 @@ def main():
                                                          player_distances_per_frame,
                                                          player_speed_per_frame
                                                          )
+    '''
 
     ## Draw Tactical View
     print("[Main] Drawing tactical view...")
@@ -221,6 +262,16 @@ def main():
     print("[Main] Drawing hoop boxes...")
     output_video_frames = hoop_box_drawer.draw(output_video_frames, hoop_detections)
 
+    print("[Main] Drawing shadow→rim lines (vertical-only)...")
+    line_drawer = HoopShadowLineDrawer(shadow_jsonl, color=(0, 255, 255), thickness=2, endpoints=False)
+    output_video_frames = line_drawer.draw(output_video_frames, frame_files, hoop_detections=hoop_detections)
+
+    output_video_frames = line_drawer.draw_with_markers(
+        output_video_frames,
+        frame_files,
+        hoop_detections=hoop_detections,
+    )
+    '''
     ## Draw Hoop Shadow (camera frame)
     print("[Main] Drawing hoop shadows...")
     hoop_shadow_drawer = HoopShadowDrawer(
@@ -229,7 +280,8 @@ def main():
         tactical_height=tactical_view_converter.height,
         color=(0, 0, 255)  # red-ish in BGR
     )
-    output_video_frames = hoop_shadow_drawer.draw(output_video_frames, court_keypoints_per_frame)
+    output_video_frames = hoop_shadow_drawer.draw(output_video_frames, court_keypoints_per_frame, return_points=True)
+    '''
 
     # Save video
     print(f"[Main] Saving {len(output_video_frames)} frames to {args.output_video}")
