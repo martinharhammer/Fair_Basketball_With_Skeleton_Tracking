@@ -1,0 +1,39 @@
+{
+  "frames_dir": "frames/003",
+
+  "ball": {
+    "script": "../ball_tracking/inference3.py",
+    "output_folder": "output",
+    "out_jsonl": "output/ball_detections.jsonl"
+  },
+
+  "hoop": {
+    "script": "hoop/inference.py",
+    "model": "models/hoop.pt",
+    "out_jsonl": "output/hoop_detections.jsonl"
+  },
+
+  "scoring": {
+    "script": "scoring/detect.py",
+    "out_jsonl": "output/scoring_detections.jsonl",
+    "visualize": true
+  },
+  
+  "court": {
+    "script": "court/keypoints.py",
+    "model": "models/court.pt",
+    "out_jsonl": "output/court_detections.jsonl"
+  },
+
+  "pose": {
+    "script": "pose/detect.py",
+    "openpose_root": "/home/ubuntu/player_tracking/openpose",
+    "model_folder": "/home/ubuntu/player_tracking/openpose/models",
+    "out_jsonl": "output/pose_detections.jsonl",
+    "window_len": 90,
+    "net_resolution": "-1x368",
+    "visualize": true,
+    "viz_dir": "output/pose_viz"
+  }
+}
+
