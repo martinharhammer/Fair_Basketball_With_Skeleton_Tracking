@@ -3,6 +3,7 @@ import cv2
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import json
 from PIL import Image
 from tqdm import tqdm
 from omegaconf import OmegaConf
@@ -10,25 +11,30 @@ from datetime import datetime
 
 from hrnet import HRNet
 from preprocessing import ResizeWithEqualScale, SeqTransformCompose
-from postprocessor import WASBPostprocessor   # assumes you copied their postprocessor.py
+from postprocessor1 import WASBPostprocessor   # assumes you copied their postprocessor.py
 
 # --------------- CONFIGURATION ---------------
 CONFIG_PATH   = 'config_hrnet.yaml'
 WEIGHTS_PATH  = 'training/finetune_outputs/best_finetuned.pth.tar'
 #WEIGHTS_PATH = 'wasb_basketball_best.pth.tar'
-FRAMES_FOLDER = 'videos/china_indonesia/frames/'
+FRAMES_FOLDER = '/home/ubuntu/precompute/frames/008'
 #FRAMES_FOLDER = 'fiba_basketball2/train'
 #FRAMES_FOLDER = 'test_finetune/frames_to_test'
-OUTPUT_FOLDER = 'test_finetune/results'
+OUTPUT_FOLDER = '/home/ubuntu/basketball_analysis/ball_detections'
 #OUTPUT_FOLDER = 'outputs'       # base dir for everything
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
+'''
 run_dir = os.path.join(
     OUTPUT_FOLDER,
     datetime.now().strftime('%d-%m-%y_%H-%M-%S')
 )
+'''
+run_dir = OUTPUT_FOLDER
 os.makedirs(run_dir, exist_ok=True)
+
+jsonl_path = os.path.join(run_dir, "detections.jsonl")
 
 N_FRAMES = 3
 DEVICE   = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -47,7 +53,7 @@ model.to(DEVICE).eval()
 #post = TracknetV2Postprocessor(score_threshold=cfg['detector']['postprocessor']['score_threshold'])
 post = WASBPostprocessor(
     heatmap_threshold=0.2,       # same as your sigmoid threshold
-    distance_threshold=10,       # tweak if needed
+    distance_threshold=5,       # tweak if needed
     history_size=3
 )
 # --------------- PREPROCESSOR ---------------
@@ -66,88 +72,109 @@ frames = sorted([
 eye2x3 = torch.tensor([[1,0,0],[0,1,0]], dtype=torch.float32)
 affine_mats = {0: eye2x3.unsqueeze(0).unsqueeze(0).repeat(1, N_FRAMES, 1, 1)}
 
-for i in tqdm(range(len(frames) - N_FRAMES + 1), desc='Inference'):
-    # 1) load raw frames
-    pil_frames = []
-    for j in range(N_FRAMES):
-        path = os.path.join(FRAMES_FOLDER, frames[i + j])
-        img  = cv2.imread(path)
-        img  = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        pil_frames.append(Image.fromarray(img))
+with open(jsonl_path, "w") as jf:
+    for i in tqdm(range(len(frames) - N_FRAMES + 1), desc='Inference'):
+        # 1) load raw frames
+        pil_frames = []
+        for j in range(N_FRAMES):
+            path = os.path.join(FRAMES_FOLDER, frames[i + j])
+            img  = cv2.imread(path)
+            img  = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            pil_frames.append(Image.fromarray(img))
 
-    # 2) model input → heatmaps
-    inp = seq_transform(pil_frames).unsqueeze(0).to(DEVICE)   # (1,3*N,H,W)
-    with torch.no_grad():
-        preds = model(inp)                                     # dict: scale→Tensor(1, N_FRAMES, H, W)
+        # 2) model input → heatmaps
+        inp = seq_transform(pil_frames).unsqueeze(0).to(DEVICE)   # (1,3*N,H,W)
+        with torch.no_grad():
+            preds = model(inp)                                     # dict: scale→Tensor(1, N_FRAMES, H, W)
 
-    # 3) postprocess → detections in original space
-    results = post.run(preds, affine_mats)  # {batch_idx: {frame_idx: {scale: {...}}}
-    scale    = list(preds.keys())[0]
-    #mid      = N_FRAMES // 2
-    mid = 0
-    dets     = results[0][mid][scale]       # {'xys': [...], 'scores': [...], 'hm':..., 'trans':...}
+        # 3) postprocess → detections in original space
+        results = post.run(preds, affine_mats)  # {batch_idx: {frame_idx: {scale: {...}}}
+        scale    = list(preds.keys())[0]
+        #mid      = N_FRAMES // 2
+        mid = post.mid
+        dets     = results[0][mid][scale]       # {'xys': [...], 'scores': [...], 'hm':..., 'trans':...}
 
-    hm_max = np.max(dets['hm'])
+        hm_max = np.max(dets['hm'])
 
-    if len(dets['xys'])>0:
-        xy, score = dets['xys'][0], dets['scores'][0]
-    else:
-        xy, score = None, None
+        if len(dets['xys'])>0:
+            xy, score = dets['xys'][0], dets['scores'][0]
+        else:
+            xy, score = None, None
 
-    print(f'[Frame {i+mid}] hm_max: {hm_max:.4f}, xy: {xy}, score: {score}')
+        print(f'[Frame {i+mid}] hm_max: {hm_max:.4f}, xy: {xy}, score: {score}')
 
-    # 4) raw heatmap for the middle frame
-    hm = preds[scale][0, mid].sigmoid_().cpu().numpy()
+        # -------- JSONL saving --------
+        if xy is not None:
+            orig = cv2.imread(os.path.join(FRAMES_FOLDER, frames[i+mid]))
+            orig_h, orig_w = orig.shape[:2]
+            inp_h, inp_w   = cfg['inp_height'], cfg['inp_width']
+            scale_x = orig_w / inp_w
+            scale_y = orig_h / inp_h
+            xy_scaled = [float(xy[0] * scale_x), float(xy[1] * scale_y)]
+        else:
+            xy_scaled = None
 
-    # 6) save the heatmap visualization into the run folder
-    fig, ax = plt.subplots(figsize=(4,4))    # ← move this here
-    ax.imshow(hm, cmap='hot')
-    ax.axis('off')
-    fig.tight_layout(pad=0)
-    hm_fname = f'heatmap_{i+mid:06d}.png'
-    fig.savefig(
-        os.path.join(run_dir, hm_fname),
-        dpi=150, bbox_inches='tight', pad_inches=0
-    )
-    plt.close(fig)
+        record = {
+            "frame": frames[i+mid],
+            "coordinates": xy_scaled,
+            "score": float(score) if score is not None else None
+        }
+        jf.write(json.dumps(record) + "\n")
 
-    # 7) overlay detection into the same run folder
+        # 4) raw heatmap for the middle frame
+        hm = preds[scale][0, mid].sigmoid_().cpu().numpy()
 
-    # load the original frame (in full resolution)
-    orig = cv2.imread(os.path.join(FRAMES_FOLDER, frames[i+mid]))
-
-    # map the (x,y) from network coords → original frame coords
-    if xy is not None:
-        orig_h, orig_w = orig.shape[:2]
-        inp_h, inp_w   = cfg['inp_height'], cfg['inp_width']
-        scale_x = orig_w / inp_w
-        scale_y = orig_h / inp_h
-        xy = np.array([xy[0] * scale_x, xy[1] * scale_y])
-        x_int, y_int = int(xy[0]), int(xy[1])
-
-    # overlay the detection
-    vis = orig.copy()
-    if xy is not None:
-        cv2.circle(vis, (x_int, y_int), 5, (0,255,0), thickness=-1)
-        cv2.putText(
-            vis, f'{score:.2f}', (x_int+6, y_int-6),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1,
-            lineType=cv2.LINE_AA
+        # 6) save the heatmap visualization into the run folder
+        #'''
+        fig, ax = plt.subplots(figsize=(4,4))    # ← move this here
+        ax.imshow(hm, cmap='hot')
+        ax.axis('off')
+        fig.tight_layout(pad=0)
+        hm_fname = f'heatmap_{i+mid:06d}.png'
+        fig.savefig(
+            os.path.join(run_dir, hm_fname),
+            dpi=150, bbox_inches='tight', pad_inches=0
         )
-    vis_fname = f'overlay_{i+mid:06d}.png'
-    cv2.imwrite(os.path.join(run_dir, vis_fname), vis)
+        plt.close(fig)
+        
 
-    print(f'[{i+1}] saved → {hm_fname} + {vis_fname} in {run_dir}')
+        # 7) overlay detection into the same run folder
 
-    # break if you only want the first
-    # break
+        # load the original frame (in full resolution)
+        orig = cv2.imread(os.path.join(FRAMES_FOLDER, frames[i+mid]))
+
+        # map the (x,y) from network coords → original frame coords
+        if xy is not None:
+            orig_h, orig_w = orig.shape[:2]
+            inp_h, inp_w   = cfg['inp_height'], cfg['inp_width']
+            scale_x = orig_w / inp_w
+            scale_y = orig_h / inp_h
+            xy = np.array([xy[0] * scale_x, xy[1] * scale_y])
+            x_int, y_int = int(xy[0]), int(xy[1])
+
+        # overlay the detection
+        vis = orig.copy()
+        if xy is not None:
+            cv2.circle(vis, (x_int, y_int), 5, (0,255,0), thickness=-1)
+            cv2.putText(
+                vis, f'{score:.2f}', (x_int+6, y_int-6),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1,
+                lineType=cv2.LINE_AA
+            )
+        vis_fname = f'overlay_{i+mid:06d}.png'
+        cv2.imwrite(os.path.join(run_dir, vis_fname), vis)
+
+        print(f'[{i+1}] saved → {vis_fname} in {run_dir}')
+
+        # break if you only want the first
+        # break
 
 import cv2
 import os
 from glob import glob
 
 # -------- CONFIG --------
-overlay_folder = run_dir  # path to your overlay images
+overlay_folder = OUTPUT_FOLDER  # path to your overlay images
 output_path = 'output_video.mp4'             # final video file name
 fps = 30                                     # frames per second
 
@@ -170,3 +197,5 @@ for file in image_files:
 
 video.release()
 print(f"[INFO] Video saved to: {output_path}")
+#"""
+print("Done!")

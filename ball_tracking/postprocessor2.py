@@ -12,12 +12,8 @@ class WASBPostprocessor:
     - Adapts if detections are missed for several frames
     """
 
-    # Proximity-lock defaults (do NOT touch the constructor)
-    _PROX_LOCK_DIST = 20.0
-    _PROX_LOCK_MISS_LIMIT = 2
-
     def __init__(self, heatmap_threshold=0.2, distance_threshold=10, history_size=3, dist_weight=0.25, max_misses=5,
-                 punish_alpha=9.0, punish_scale=2.0):
+                 punish_alpha=3.0, punish_scale=5.0):
         self.heatmap_threshold = heatmap_threshold
         self.distance_threshold = distance_threshold
         self.history_size = history_size
@@ -29,6 +25,9 @@ class WASBPostprocessor:
         # punishment params
         self.punish_alpha = punish_alpha
         self.punish_scale = punish_scale
+
+        self.jump_threshold = 100.0      # px
+        self._pending_big_jump = False   # skip first big jump only
 
     def _extract_candidates(self, hm: np.ndarray):
         _, binary = cv2.threshold(hm, self.heatmap_threshold, 1, cv2.THRESH_BINARY)
@@ -67,15 +66,9 @@ class WASBPostprocessor:
             return 0.0
         extra = dist - self.distance_threshold
         # Steeper yet still diminishing increments:
-        beta = 9.0   # try 2–4
-        p = 3.0      # try 1.2–2.0
-        scale = 2.0
+        beta = 3.0   # try 2–4
+        p = 1.5      # try 1.2–2.0
         return float(self.punish_alpha * np.log1p(beta * (extra / self.punish_scale) ** p))
-
-    # --- Proximity lock helper (no constructor changes) ---
-    def _proximity_lock_active(self, anchor_exists: bool) -> bool:
-        """Only allow candidates within ±_PROX_LOCK_DIST of anchor while 'locked'."""
-        return anchor_exists and (self.missed_frames < self._PROX_LOCK_MISS_LIMIT)
 
     def run(self, preds, affine_mats):
         results = {0: {}}
@@ -95,7 +88,7 @@ class WASBPostprocessor:
             if j == self.mid:
                 cands = self._extract_candidates(hm)
 
-                # 🔹 Anchor to last accepted, fallback to prediction
+                # 🔹 Minimal change: anchor to last accepted, fallback to prediction
                 anchor = self.history[-1] if len(self.history) > 0 else pred_pos
 
                 print(f'[DEBUG] Frame {j} — pred_pos = {pred_pos}, last = {self.history[-1] if self.history else None}, missed = {self.missed_frames}')
@@ -104,49 +97,45 @@ class WASBPostprocessor:
                     print(f'  → cand#{idx}: pos={pos}, conf={conf:.2f}, dist_to_anchor={dist_dbg:.2f}')
 
                 if cands:
-                    # --- Proximity lock gating (the hard gate you wanted) ---
-                    prox_lock_on = self._proximity_lock_active(anchor is not None)
-                    prox_lock_dist = self._PROX_LOCK_DIST  # ±20 px radius
-
-                    if prox_lock_on:
-                        print(f'[DEBUG] ProximityLock=ON (limit={prox_lock_dist}, missed<{self._PROX_LOCK_MISS_LIMIT})')
-                    else:
-                        print(f'[DEBUG] ProximityLock=OFF')
-
-                    # First, optionally filter by proximity lock
-                    gated = []
+                    scored = []
                     for pos, conf in cands:
                         dist = np.linalg.norm(pos - anchor) if anchor is not None else 0.0
-                        if prox_lock_on and dist > prox_lock_dist:
-                            # outside the proximity lock while we're confident → skip
-                            continue
-                        gated.append((pos, conf, dist))
+                        if anchor is not None and self.missed_frames < self.max_misses:
+                            score = conf - self._log_punishment(dist)
+                        else:
+                            score = conf
+                        scored.append((pos, score, conf, dist))
 
-                    if not gated:
-                        # nothing close enough → treat as a miss this frame
-                        xys, scores = [], []
-                        self.missed_frames += 1
-                    else:
-                        # score remaining candidates
-                        scored = []
-                        for pos, conf, dist in gated:
-                            if anchor is not None and self.missed_frames < self.max_misses:
-                                # thresholded log punishment
-                                score = conf - self._log_punishment(dist)
+                    # ➊ choose the best candidate (you accidentally removed this)
+                    pos, score, conf, dist = max(scored, key=lambda x: x[1])
+
+                    # ➋ jump filter: skip the FIRST >100px jump, accept the next one
+                    accept = True
+                    if len(self.history) > 0:
+                        dist_to_last = float(np.linalg.norm(pos - self.history[-1]))
+                        if dist_to_last > self.jump_threshold:
+                            if not self._pending_big_jump:
+                                self._pending_big_jump = True   # mark once
+                                accept = False                  # skip this frame
                             else:
-                                score = conf
-                            scored.append((pos, score, conf, dist))
-                        pos, score, conf, dist = max(scored, key=lambda x: x[1])
+                                self._pending_big_jump = False  # second time: accept
+                        else:
+                            self._pending_big_jump = False      # normal frame clears flag
+
+                    if accept:
                         xy = pos
                         self.history.append(xy)
                         if len(self.history) > self.history_size:
                             self.history.pop(0)
                         self.missed_frames = 0
-                        xys, scores = [xy], [conf]  # use raw confidence for visualization
+                        xys, scores = [xy], [conf]
+                    else:
+                        xys, scores = [], []
+                        self.missed_frames += 1
                 else:
+                    # when no candidates: keep original behavior
                     xys, scores = [], []
                     self.missed_frames += 1
-
                 results[0][j] = {
                     scale: {'xys': xys, 'scores': scores, 'hm': hm, 'trans': trans}
                 }
@@ -175,4 +164,3 @@ class WASBPostprocessor:
 
         out.release()
         print(f"[INFO] Video saved at: {video_path}")
-

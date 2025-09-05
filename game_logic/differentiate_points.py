@@ -107,7 +107,7 @@ def decision_for_event(
     court_idx: Dict[str, List[List[float]]],
     ankle_dist_thresh_px: float = 50.0,
     min_ft_hits: int = 2,
-    frame_gap_3pt: int = 50,
+    frame_gap_3pt: int = 48,
     debug: bool = True
 ) -> dict:
     """
@@ -137,7 +137,7 @@ def decision_for_event(
         print(f"[Event {event.get('event_id','?')}] trigger={trig}({trig_idx}) shooter={shot}({shot_idx}) gap={gap}")
 
     # 3-pointer
-    if gap > frame_gap_3pt:
+    if gap >= frame_gap_3pt:
         if debug:
             print(f"  -> 3PT (gap {gap} > {frame_gap_3pt})")
         return {**event, "label":"3PT", "reason": f"gap>{frame_gap_3pt}", "gap": gap}

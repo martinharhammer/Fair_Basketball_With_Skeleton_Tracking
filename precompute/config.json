@@ -1,5 +1,5 @@
 {
-  "frames_dir": "frames/003",
+  "frames_dir": "frames/010",
 
   "ball": {
     "script": "../ball_tracking/inference3.py",

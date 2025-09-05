@@ -4,9 +4,9 @@ import os
 import datetime as dt
 
 # --- paths ---
-frames_dir = "001/raw_frames"
-hoop_annos_path = "001/hoop/detections.jsonl"   # "bbox": [cx, cy, w, h] (center format)
-ball_annos_path = "001/ball/detections.jsonl"      # "coordinates": [x, y]
+frames_dir = "004/raw_frames"
+hoop_annos_path = "004/hoop/detections.jsonl"   # "bbox": [cx, cy, w, h] (center format)
+ball_annos_path = "004/ball/detections.jsonl"      # "coordinates": [x, y]
 output_dir = "output/scoring_event_detection"
 
 stamp = dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

@@ -64,7 +64,7 @@ ref_bh = None
 frames_left = 0               # countdown window for transitions
 WINDOW_AFTER_ABOVE = 10       # frames to see bbox size change after ABOVE
 WINDOW_AFTER_SIZE = 5        # frames to see ball in BELOW after size change
-SIZE_DELTA_PX = 10            # threshold for hoop bbox width/height change
+SIZE_DELTA_PX = 7            # threshold for hoop bbox width/height change
 scoring_event_count = 0
 
 # --- main loop ---
@@ -138,6 +138,7 @@ with open(out_path, "w") as jf:
             elif state == "ABOVE":
                 frames_left -= 1
                 # check size change
+                print(f"{max(abs(bw - ref_bw), abs(bh - ref_bh))} pixels changed")
                 if max(abs(bw - ref_bw), abs(bh - ref_bh)) >= SIZE_DELTA_PX:
                     state = "SIZE_CHANGED"
                     print("SCORING: size changed of hoop bbox")

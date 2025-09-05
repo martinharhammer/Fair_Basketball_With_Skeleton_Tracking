@@ -119,7 +119,7 @@ def main():
                 court_idx,
                 ankle_dist_thresh_px=50.0,  # px to FT line to call 1PT
                 min_ft_hits=1,              # need at least 2/3 frames near line
-                frame_gap_3pt=50,           # >50 frames between trigger and shot -> 3PT
+                frame_gap_3pt=49,           # >50 frames between trigger and shot -> 3PT
                 debug=True
             )
             points_label  = pt_res["label"]

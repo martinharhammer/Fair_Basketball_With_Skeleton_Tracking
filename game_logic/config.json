@@ -1,5 +1,5 @@
 {
-  "frames_dir": "../precompute/frames/006",
+  "frames_dir": "../precompute/frames/010",
 
   "ball": {
     "out_jsonl": "../precompute/output/ball_detections.jsonl"

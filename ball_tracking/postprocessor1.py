@@ -142,4 +142,3 @@ class WASBPostprocessor:
 
         out.release()
         print(f"[INFO] Video saved at: {video_path}")
-
