@@ -1,26 +1,22 @@
 from ultralytics import YOLO
-import glob, os, sys, json
+import os, sys, json
 from pathlib import Path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from helpers.frame_source import FrameSource
 
 # config
 CONFIG_PATH = os.environ.get("GATHER_CONFIG", "config.json")
 with open(CONFIG_PATH, "r", encoding="utf-8") as f:
     C = json.load(f)
 
-frames_dir = C["frames_dir"]
+video_path = C.get("video_path")
+frames_dir = C.get("frames_dir")
 court_cfg  = C["court"]
-model_path = court_cfg["model"]          # <- add this in your config
+model_path = court_cfg["model"]
 out_path   = court_cfg["out_jsonl"]
 
-os.makedirs(os.path.dirname(out_path), exist_ok=True)
+os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
-# gather frames (PNG)
-img_paths = sorted(glob.glob(os.path.join(frames_dir, "*.png")))
-print(f"[Court] Found {len(img_paths)} frames")
-if not img_paths:
-    sys.exit("[court] No images found.")
-
-# load model
 model = YOLO(model_path)
 
 # helper: convert YOLO keypoints to pure-Python lists
@@ -48,17 +44,30 @@ def extract_keypoints(result):
         out.append(inst)
     return out
 
-# inference (batched) + write JSONL
+# stream frames (video or folder) and run batched inference on numpy arrays
 batch_size = int(court_cfg.get("batch_size", 20))
+src = FrameSource(video_path=video_path)
+print(f"[Court] Input frames: {src.count}")
+if src.count == 0:
+    sys.exit("[court] No frames found (video unreadable or folder empty).")
+
 with open(out_path, "w", encoding="utf-8") as jf:
-    for i in range(0, len(img_paths), batch_size):
-        batch = img_paths[i:i+batch_size]
-        results = model(batch, imgsz=960, conf=0.10, iou=0.60, verbose=False)
-        for frame_path, res in zip(batch, results):
-            rec = {
-                "frame": os.path.basename(frame_path),
-                "keypoints": extract_keypoints(res)  # [] if none
-            }
+    batch_imgs, batch_names = [], []
+    for _, name, frame in src:
+        batch_imgs.append(frame)
+        batch_names.append(name)
+        if len(batch_imgs) == batch_size:
+            results = model(batch_imgs, imgsz=960, conf=0.10, iou=0.60, verbose=False)
+            for nm, res in zip(batch_names, results):
+                rec = {"frame": nm, "keypoints": extract_keypoints(res)}
+                jf.write(json.dumps(rec) + "\n")
+            batch_imgs.clear(); batch_names.clear()
+
+    # flush tail
+    if batch_imgs:
+        results = model(batch_imgs, imgsz=960, conf=0.10, iou=0.60, verbose=False)
+        for nm, res in zip(batch_names, results):
+            rec = {"frame": nm, "keypoints": extract_keypoints(res)}
             jf.write(json.dumps(rec) + "\n")
 
 print(f"[Court] Detections saved to {out_path}")

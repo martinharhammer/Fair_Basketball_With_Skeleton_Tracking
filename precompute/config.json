@@ -1,8 +1,9 @@
+
 {
-  "frames_dir": "frames/010",
+  "video_path": "video/seg12_cut.mp4",
 
   "ball": {
-    "script": "../ball_tracking/inference3.py",
+    "script": "ball/inference.py",
     "output_folder": "output",
     "out_jsonl": "output/ball_detections.jsonl"
   },
@@ -16,7 +17,7 @@
   "scoring": {
     "script": "scoring/detect.py",
     "out_jsonl": "output/scoring_detections.jsonl",
-    "visualize": true
+    "visualize": false
   },
   
   "court": {
@@ -27,12 +28,12 @@
 
   "pose": {
     "script": "pose/detect.py",
-    "openpose_root": "/home/ubuntu/player_tracking/openpose",
-    "model_folder": "/home/ubuntu/player_tracking/openpose/models",
+    "openpose_root": "pose/openpose",
+    "model_folder": "models/pose_models",
     "out_jsonl": "output/pose_detections.jsonl",
     "window_len": 90,
     "net_resolution": "-1x368",
-    "visualize": true,
+    "visualize": false,
     "viz_dir": "output/pose_viz"
   }
 }
