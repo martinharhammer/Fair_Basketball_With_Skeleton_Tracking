@@ -1,19 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-Compute height-adjusted, fairness-weighted basketball scores.
-
-- Loads events from a JSON file (set JSON_FILE below).
-- Clamps height estimates to [150, 225] cm.
-- Uses the median clamped height as the robust center.
-- Applies linear weighting up to +/- MAX_BOOST.
-- Prints pretty, structured output with per-event rows and final totals.
-- ALSO saves the exact same report to OUTPUT_TXT and prints a confirmation.
-
-Author: you :)
-"""
-
 import json
 import math
 import os
@@ -24,13 +8,13 @@ from typing import Any, Dict, List, Optional, Tuple
 # =========================
 # CONFIG
 # =========================
-JSON_FILE   = "../precompute/output/score_input.json"   # <- change to your file path
+JSON_FILE   = "../precompute/output/score_input.json"
 CLAMP_MIN   = 160
 CLAMP_MAX   = 225
-MAX_BOOST   = 0.50            # ±50% weighting; tweak as you like
-NEUTRAL_ON_MISSING = 1.0      # factor to use when height is missing
-ROUND_FACTOR = 2              # decimal places for factors & weighted pts
-OUTPUT_TXT  = "../precompute/output/final_score.txt"    # where to save the pretty report
+MAX_BOOST   = 0.50
+NEUTRAL_ON_MISSING = 1.0
+ROUND_FACTOR = 2
+OUTPUT_TXT  = "../precompute/output/final_score.txt"
 
 
 # =========================
@@ -134,7 +118,7 @@ def render_report(center: float,
                   rows: List[List[str]],
                   team_rows: List[List[str]],
                   team_totals: Dict[str, float]) -> str:
-    """Build the exact same pretty report text as your print block."""
+
     out = []
     out.append(line(70, "="))
     out.append("HEIGHT-ADJUSTED SCORING REPORT".center(70))
@@ -177,7 +161,6 @@ def render_report(center: float,
 def main():
     events = load_events(JSON_FILE)
 
-    # assemble per-event data
     processed = []
     for ev in events:
         pts  = ev.get("points", 0) or 0
@@ -197,17 +180,14 @@ def main():
             "height_clamped": h_cm_clamped
         })
 
-    # robust center = median of clamped heights
     center = compute_median_center([p["height_clamped"] for p in processed])
 
-    # compute factors & weighted points
     team_totals = defaultdict(float)
     rows = []
     for p in processed:
         factor = linear_easiness(p["height_clamped"], center)
         wpts = p["points"] * factor
 
-        # accumulate team totals
         team_totals[p["team"]] += wpts
 
         rows.append([
@@ -221,23 +201,18 @@ def main():
             fmt(round2(wpts), ROUND_FACTOR),
         ])
 
-    # build per-team table
     team_rows = []
     for team, total in sorted(team_totals.items(), key=lambda kv: (-kv[1], kv[0])):
         team_rows.append([team, fmt(round2(total), ROUND_FACTOR)])
 
-    # ----- render the exact report text -----
     report_text = render_report(center, rows, team_rows, team_totals)
 
-    # print to console (unchanged format)
     print(report_text)
 
-    # ensure directory exists and save to .txt
     os.makedirs(os.path.dirname(OUTPUT_TXT), exist_ok=True)
     with open(OUTPUT_TXT, "w", encoding="utf-8") as f:
         f.write(report_text)
 
-    # confirmation message
     print(f"\nSaved scoring sheet to: {os.path.abspath(OUTPUT_TXT)}")
 
 
