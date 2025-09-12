@@ -7,14 +7,16 @@ Compute height-adjusted, fairness-weighted basketball scores.
 - Loads events from a JSON file (set JSON_FILE below).
 - Clamps height estimates to [150, 225] cm.
 - Uses the median clamped height as the robust center.
-- Applies linear weighting up to +/- MAX_BOOST (default ±20%).
+- Applies linear weighting up to +/- MAX_BOOST.
 - Prints pretty, structured output with per-event rows and final totals.
+- ALSO saves the exact same report to OUTPUT_TXT and prints a confirmation.
 
 Author: you :)
 """
 
 import json
 import math
+import os
 from statistics import median
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
@@ -25,9 +27,10 @@ from typing import Any, Dict, List, Optional, Tuple
 JSON_FILE   = "../precompute/output/score_input.json"   # <- change to your file path
 CLAMP_MIN   = 160
 CLAMP_MAX   = 225
-MAX_BOOST   = 0.50            # ±20% weighting; tweak as you like
+MAX_BOOST   = 0.50            # ±50% weighting; tweak as you like
 NEUTRAL_ON_MISSING = 1.0      # factor to use when height is missing
 ROUND_FACTOR = 2              # decimal places for factors & weighted pts
+OUTPUT_TXT  = "../precompute/output/final_score.txt"    # where to save the pretty report
 
 
 # =========================
@@ -127,6 +130,50 @@ def linear_easiness(h: Optional[float], center: float) -> float:
 def round2(x: float) -> float:
     return float(f"{x:.{ROUND_FACTOR}f}")
 
+def render_report(center: float,
+                  rows: List[List[str]],
+                  team_rows: List[List[str]],
+                  team_totals: Dict[str, float]) -> str:
+    """Build the exact same pretty report text as your print block."""
+    out = []
+    out.append(line(70, "="))
+    out.append("HEIGHT-ADJUSTED SCORING REPORT".center(70))
+    out.append(line(70, "="))
+    out.append("")
+    out.append("CONFIG".center(70, "-"))
+    out.append(f"Clamp range (cm): [{CLAMP_MIN}, {CLAMP_MAX}]")
+    out.append(f"Max boost (±):    {int(MAX_BOOST*100)}%")
+    out.append(f"Neutral (missing height) factor: {NEUTRAL_ON_MISSING}")
+    out.append(line(70, "-"))
+    out.append(f"Robust center (median height, cm): {fmt(center, 1)}")
+    out.append("")
+    out.append("PER-EVENT DETAILS".center(70, "-"))
+    headers = ["ID", "Time", "Team", "Pts", "H(cm)", "H_clamp", "Factor", "Weighted Pts"]
+    out.append(make_table(rows, headers))
+    out.append("")
+    out.append("TEAM TOTALS (WEIGHTED)".center(70, "-"))
+    out.append(make_table(team_rows, ["Team", "Weighted Pts"]))
+    out.append("")
+    out.append(line(70, "="))
+    out.append("FINAL SCORE".center(70))
+    out.append(line(70, "="))
+
+    width = 70
+    for team, total in sorted(team_totals.items(), key=lambda kv: (-kv[1], kv[0])):
+        left = f"{team}"
+        right = f"{round2(total)}"
+        dots = "." * max(2, width - len(left) - len(right) - 2)
+        out.append(f"{left} {dots} {right}")
+
+    win = winner_from_totals(team_totals)
+    if win:
+        out.append(line(70, "-"))
+        out.append(f"Winner: {win[0]}  with {round2(win[1])} weighted points")
+    out.append(line(70, "="))
+
+    return "\n".join(out)
+
+
 def main():
     events = load_events(JSON_FILE)
 
@@ -135,7 +182,7 @@ def main():
     for ev in events:
         pts  = ev.get("points", 0) or 0
         team = ev.get("team", "UNKNOWN") or "UNKNOWN"
-        ts   = ev.get("timestamp", "-")
+        ts   = str(ev.get("timestamp", "-")).split(".")[0]
         eid  = ev.get("event_id", None)
 
         h_cm_raw = extract_height_cm(ev)
@@ -179,47 +226,19 @@ def main():
     for team, total in sorted(team_totals.items(), key=lambda kv: (-kv[1], kv[0])):
         team_rows.append([team, fmt(round2(total), ROUND_FACTOR)])
 
-    # =========================
-    # PRETTY OUTPUT
-    # =========================
-    print(line(70, "="))
-    print("HEIGHT-ADJUSTED SCORING REPORT".center(70))
-    print(line(70, "="))
-    print()
-    print("CONFIG".center(70, "-"))
-    print(f"Clamp range (cm): [{CLAMP_MIN}, {CLAMP_MAX}]")
-    print(f"Max boost (±):    {int(MAX_BOOST*100)}%")
-    print(f"Neutral (missing height) factor: {NEUTRAL_ON_MISSING}")
-    print(line(70, "-"))
-    print(f"Robust center (median height, cm): {fmt(center, 1)}")
-    print()
+    # ----- render the exact report text -----
+    report_text = render_report(center, rows, team_rows, team_totals)
 
-    print("PER-EVENT DETAILS".center(70, "-"))
-    headers = ["ID", "Time", "Team", "Pts", "H(cm)", "H_clamp", "Factor", "Weighted Pts"]
-    print(make_table(rows, headers))
-    print()
+    # print to console (unchanged format)
+    print(report_text)
 
-    print("TEAM TOTALS (WEIGHTED)".center(70, "-"))
-    print(make_table(team_rows, ["Team", "Weighted Pts"]))
-    print()
+    # ensure directory exists and save to .txt
+    os.makedirs(os.path.dirname(OUTPUT_TXT), exist_ok=True)
+    with open(OUTPUT_TXT, "w", encoding="utf-8") as f:
+        f.write(report_text)
 
-    print(line(70, "="))
-    print("FINAL SCORE".center(70))
-    print(line(70, "="))
-
-    # Render a scoreboard-like block
-    width = 70
-    for team, total in sorted(team_totals.items(), key=lambda kv: (-kv[1], kv[0])):
-        left = f"{team}"
-        right = f"{round2(total)}"
-        dots = "." * max(2, width - len(left) - len(right) - 2)
-        print(f"{left} {dots} {right}")
-
-    win = winner_from_totals(team_totals)
-    if win:
-        print(line(70, "-"))
-        print(f"Winner: {win[0]}  with {round2(win[1])} weighted points")
-    print(line(70, "="))
+    # confirmation message
+    print(f"\nSaved scoring sheet to: {os.path.abspath(OUTPUT_TXT)}")
 
 
 if __name__ == "__main__":
