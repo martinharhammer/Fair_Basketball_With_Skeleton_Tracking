@@ -1,199 +1,146 @@
-# assign_team_hips_min.py
-from dataclasses import dataclass
-from typing import Tuple, List
-import numpy as np, cv2, os, json
+# game_logic/hoop_bbox_for_triggerframes.py
+import os, json, cv2, re
 
-MID_HIP, RHIP, LHIP = 8, 9, 12  # BODY_25
+CONFIG_PATH = os.environ.get("GATHER_CONFIG", "config_video.json")
 
-@dataclass
-class TeamPrototype:
-    name: str
-    hue_deg: float   # OpenCV HSV hue in [0,180]
-    sat_mean: float  # in [0,1]
-    a_med: float     # OpenCV Lab a* [0,255] (CIE a* + 128)
-    b_med: float     # OpenCV Lab b* [0,255] (CIE b* + 128)
+ROOT = os.path.abspath(os.path.dirname(__file__))
+PRECOMPUTE_BASE = os.path.abspath(os.path.join(ROOT, "..", "precompute"))
 
-def _circ_mean(h: np.ndarray) -> float:
-    ang = h.astype(np.float32) * (np.pi / 90.0)
-    s, c = np.sin(ang).mean(), np.cos(ang).mean()
-    return float((np.degrees(np.arctan2(s, c)) / 2.0) % 180.0)
+def _abs_precompute(p: str) -> str:
+    return p if os.path.isabs(p) else os.path.abspath(os.path.join(PRECOMPUTE_BASE, p))
 
-def _circ_std(h: np.ndarray) -> float:
-    ang = h.astype(np.float32) * (np.pi / 90.0)
-    s, c = np.sin(ang).mean(), np.cos(ang).mean()
-    R = float(np.hypot(s, c))
-    std_rad = np.sqrt(max(-2.0 * np.log(max(R, 1e-6)), 0.0))
-    return float(np.degrees(std_rad) / 2.0)
+def _abs_here(p: str) -> str:
+    return p if os.path.isabs(p) else os.path.abspath(os.path.join(ROOT, p))
 
-def _sample_patch(img_bgr: np.ndarray, x: float, y: float, r: int,
-                  min_sat_accept: float, max_hue_std: float):
-    """
-    Return (hue_deg, sat_0_1, a_med, b_med) or None if clearly unusable.
-    We now accept low-sat patches (<= min_sat_accept) and rely more on Lab there.
-    Hue-dispersion is only enforced when saturation is reasonably high.
-    """
-    H, W = img_bgr.shape[:2]
-    cx, cy = int(round(x)), int(round(y))
-    if not (0 <= cx < W and 0 <= cy < H):
-        return None
+def load_jsonl(path: str):
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            s = line.strip()
+            if s:
+                yield json.loads(s)
 
-    y0, y1 = max(0, cy - r), min(H, cy + r + 1)
-    x0, x1 = max(0, cx - r), min(W, cx + r + 1)
-    yy, xx = np.ogrid[y0:y1, x0:x1]
-    mask = (xx - cx) ** 2 + (yy - cy) ** 2 <= r * r
-    if mask.sum() < 40:
-        return None
+def get_video_geom(video_path: str):
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open video: {video_path}")
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    fps = float(cap.get(cv2.CAP_PROP_FPS))
+    cap.release()
+    if w <= 0 or fps <= 0:
+        raise RuntimeError("Failed to read width/fps from video.")
+    return w, fps
 
-    crop = img_bgr[y0:y1, x0:x1]
-    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
-    Hc, Sc, _ = cv2.split(hsv)
-    _, Ac, Bc = cv2.split(lab)
+def frame_name_to_index(name: str) -> int:
+    m = re.search(r"(\d+)", str(name))
+    return int(m.group(1)) if m else 0
 
-    Hv = Hc[mask]
-    Sv = Sc[mask].astype(np.float32) / 255.0
-    Av = Ac[mask].astype(np.float32)
-    Bv = Bc[mask].astype(np.float32)
+def seconds_to_hms(t: float) -> str:
+    # "HH:MM:SS.mmm"
+    h = int(t // 3600)
+    m = int((t % 3600) // 60)
+    s = t - (h * 3600 + m * 60)
+    return f"{h:02d}:{m:02d}:{s:06.3f}"
 
-    sat_mean = float(Sv.mean())
-    hue_std  = _circ_std(Hv)
+def hms_to_seconds(hms: str) -> float:
+    if not hms:
+        return 0.0
+    parts = [float(p) for p in hms.split(":")]
+    if len(parts) == 3:
+        h, m, s = parts
+        return h * 3600 + m * 60 + s
+    if len(parts) == 2:
+        m, s = parts
+        return m * 60 + s
+    return parts[0]
 
-    # If saturation is reasonably high, require a stable hue.
-    if sat_mean > (min_sat_accept + 0.03) and hue_std > max_hue_std:
-        return None
+def main():
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        C = json.load(f)
 
-    return _circ_mean(Hv), sat_mean, float(np.median(Av)), float(np.median(Bv))
+    scoring_jsonl   = _abs_precompute(C["scoring"]["out_jsonl"])
+    hoop_jsonl_path = _abs_precompute(C["hoop"]["out_jsonl"])
+    video_path      = _abs_here(C["video_path"])
 
-def _hue_d(h1: float, h2: float) -> float:
-    d = abs(h1 - h2)
-    return float(min(d, 180.0 - d))
+    # team sides config
+    TS = C.get("team_sides") or {}
+    base_left  = TS.get("left_side", "LEFT_TEAM")
+    base_right = TS.get("right_side", "RIGHT_TEAM")
+    switch     = bool(TS.get("switch_sides", False))
+    halftime_s = hms_to_seconds(TS.get("halftime", ""))
 
-def _dist(f, p: TeamPrototype) -> float:
-    """
-    Weighted distance in [hue, sat, a, b].
-    We keep the same weights; when saturation is low, the hue term tends to matter less
-    because prototypes for gray kits also have low saturation and neutral a/b.
-    """
-    dH = _hue_d(f[0], p.hue_deg)
-    dS = abs(f[1] - p.sat_mean)
-    dA = abs(f[2] - p.a_med)
-    dB = abs(f[3] - p.b_med)
-    return float(np.sqrt((0.6 * dH) ** 2 + (1.0 * dS) ** 2 + (1.2 * dA) ** 2 + (1.0 * dB) ** 2))
+    # video geometry
+    frame_w, fps = get_video_geom(video_path)
+    mid_x = 0.5 * frame_w
 
-class HipColorAssigner:
-    """
-    Robust team assigner using color near the 3 hip keypoints.
-    - Samples a small offset grid around each hip to combat jitter.
-    - Accepts low-sat patches and relies more on Lab in those cases.
-    """
-    def __init__(self,
-                 frames_dir: str,
-                 teamA: TeamPrototype,
-                 teamB: TeamPrototype,
-                 conf_thresh: float = 0.40,
-                 patch_radius: int = 12,
-                 offset_px: int = 3,
-                 min_sat_accept: float = 0.05,
-                 max_hue_std: float = 18.0):
-        self.frames_dir = frames_dir
-        self.A, self.B = teamA, teamB
-        self.conf_thresh = conf_thresh
-        self.patch_radius = patch_radius
-        self.offset_px = offset_px
-        self.min_sat_accept = min_sat_accept
-        self.max_hue_std = max_hue_std
+    out_path = os.path.join(PRECOMPUTE_BASE, "output", "hoop_bbox_per_event.jsonl")
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    if os.path.exists(out_path):
+        os.remove(out_path)
 
-    def assign_for_frame(self,
-                         frame_name: str,
-                         people: List[dict],
-                         person_index: int,
-                         debug: bool = False):
-        log = []
-        if not (0 <= person_index < len(people)):
-            log.append(f"bad index: person_index={person_index}, len(people)={len(people)}")
-            return ("UNKNOWN", 1.0, log) if debug else ("UNKNOWN", 1.0)
+    # Build: frame -> {cx, cy, w, h}
+    hoop_by_frame = {}
+    for row in load_jsonl(hoop_jsonl_path):
+        fr = row["frame"]
+        cx, cy, w, h = map(float, row["bbox"])  # bbox = [cx, cy, w, h]
+        hoop_by_frame[fr] = {"cx": cx, "cy": cy, "w": w, "h": h}
 
-        path = os.path.join(self.frames_dir, frame_name)
-        img = cv2.imread(path, cv2.IMREAD_COLOR)
-        if img is None:
-            log.append(f"imread failed: {path}")
-            return ("UNKNOWN", 1.0, log) if debug else ("UNKNOWN", 1.0)
+    with open(out_path, "a", encoding="utf-8") as out_f:
+        for ev in load_jsonl(scoring_jsonl):
+            ev_id = ev.get("event_id") or ev.get("scoring_event_count")
+            trigger_frame = ev.get("frame") or ev.get("trigger_frame")
+            hoop = hoop_by_frame.get(trigger_frame)
 
-        entry = people[person_index]
-        p_flat = entry.get("p")
-        if p_flat is None:
-            log.append("people[person_index] missing 'p'")
-            return ("UNKNOWN", 1.0, log) if debug else ("UNKNOWN", 1.0)
+            # event time from frame index
+            t_seconds = 0.0
+            if trigger_frame:
+                idx = frame_name_to_index(trigger_frame)
+                t_seconds = idx / fps
+            t_hms = seconds_to_hms(t_seconds)
 
-        pose = np.asarray(p_flat, np.float32).reshape(25, -1)
-        if pose.shape[1] < 3:
-            log.append(f"pose has {pose.shape[1]} channels, expected 3")
-            return ("UNKNOWN", 1.0, log) if debug else ("UNKNOWN", 1.0)
+            # sides at this event time (apply halftime swap if enabled)
+            left_team, right_team = base_left, base_right
+            if switch and (t_seconds >= halftime_s):
+                left_team, right_team = base_right, base_left
 
-        feats = []
-        offsets = [(0,0), ( self.offset_px,0), (-self.offset_px,0),
-                          (0, self.offset_px), (0,-self.offset_px)]
-        for name, i in (("MID_HIP", MID_HIP), ("RHIP", RHIP), ("LHIP", LHIP)):
-            x, y, c = pose[i]
-            if c < self.conf_thresh:
-                log.append(f"{name}: conf {c:.2f} < {self.conf_thresh}")
-                continue
+            hoop_side = None
+            offset_px = None
+            team_assigned = "UNKNOWN"
+            hoop_xyxy = None
 
-            accepted_one = False
-            for dx, dy in offsets:
-                stat = _sample_patch(img, x+dx, y+dy, self.patch_radius,
-                                     self.min_sat_accept, self.max_hue_std)
-                if stat is None:
-                    continue
-                h, s, a, b = stat
-                log.append(f"{name}({dx:+d},{dy:+d}): hue={h:.1f} sat={s:.2f} a={a:.1f} b={b:.1f}")
-                feats.append(stat)
-                accepted_one = True
-                break  # take first good offset for this joint
+            if hoop is not None:
+                offset_px = hoop["cx"] - mid_x
+                hoop_side = "RIGHT" if offset_px >= 0 else "LEFT"
+                # Assign: LEFT hoop → right_side team; RIGHT hoop → left_side team
+                team_assigned = right_team if hoop_side == "LEFT" else left_team
 
-            if not accepted_one:
-                log.append(f"{name}: no good patch in offsets")
+                # xyxy convenience
+                x1 = hoop["cx"] - hoop["w"] * 0.5
+                y1 = hoop["cy"] - hoop["h"] * 0.5
+                x2 = hoop["cx"] + hoop["w"] * 0.5
+                y2 = hoop["cy"] + hoop["h"] * 0.5
+                hoop_xyxy = [x1, y1, x2, y2]
 
-        if not feats:
-            log.append("no valid hip patches")
-            return ("UNKNOWN", 1.0, log) if debug else ("UNKNOWN", 1.0)
+            rec = {
+                "event_id": ev_id,
+                "trigger_frame": trigger_frame,
+                "timestamp_hms": t_hms,     # <-- added
+                "event_time_s": round(t_seconds, 3),
+                "hoop_cxcywh": hoop,        # {"cx","cy","w","h"} or None
+                "hoop_xyxy": hoop_xyxy,     # [x1,y1,x2,y2] or None
+                "frame_width": frame_w,
+                "mid_x": mid_x,
+                "offset_px": offset_px,     # cx - mid_x
+                "hoop_side": hoop_side,     # "LEFT"/"RIGHT"/None
+                "team_left_at_time": left_team,
+                "team_right_at_time": right_team,
+                "switch_sides": switch,
+                "halftime_hms": TS.get("halftime", ""),
+                "team_assigned": team_assigned
+            }
+            out_f.write(json.dumps(rec) + "\n")
 
-        f = np.mean(np.asarray(feats, np.float32), axis=0)
-        dA, dB = _dist(f, self.A), _dist(f, self.B)
-        label = self.A.name if dA < dB else self.B.name
-        conf_ratio = (max(dA, dB) / (min(dA, dB) + 1e-6))
-        log.append(f"feat mean: hue={f[0]:.1f} sat={f[1]:.2f} a={f[2]:.1f} b={f[3]:.1f}")
-        log.append(f"distA={dA:.3f}, distB={dB:.3f} -> {label}, conf_ratio={conf_ratio:.3f}")
+    print(f"[OK] wrote: {out_path} (mid_x={mid_x:.1f}, frame_w={frame_w}, fps={fps:.3f})")
 
-        return (label, float(conf_ratio), log) if debug else (label, float(conf_ratio))
-
-    def assign_from_people(self,
-                           frame_name: str,
-                           people: List[dict],
-                           person_index: int,
-                           debug: bool = False):
-        return self.assign_for_frame(frame_name, people, person_index, debug=debug)
-
-    def assign_from_pose_jsonl(self,
-                               frame_name: str,
-                               person_index: int,
-                               pose_jsonl_path: str,
-                               debug: bool = False):
-        try:
-            with open(pose_jsonl_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    row = json.loads(line)
-                    if row.get("frame") == frame_name and "people" in row:
-                        return self.assign_for_frame(frame_name, row.get("people") or [], person_index, debug=debug)
-                    frs = row.get("frames")
-                    if isinstance(frs, list):
-                        for fr in frs:
-                            if fr.get("frame") == frame_name and "people" in fr:
-                                return self.assign_for_frame(frame_name, fr.get("people") or [], person_index, debug=debug)
-        except Exception as e:
-            if debug:
-                return "UNKNOWN", 1.0, [f"pose_jsonl read error: {e}"]
-        return ("UNKNOWN", 1.0, ["frame not found in pose_jsonl"]) if debug else ("UNKNOWN", 1.0)
+if __name__ == "__main__":
+    main()
 

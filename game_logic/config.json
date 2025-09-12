@@ -1,6 +1,8 @@
 {
   "frames_dir": "../precompute/frames/010",
 
+  "video_path": "../precompute/video/full_game.mp4",
+
   "ball": {
     "out_jsonl": "../precompute/output/ball_detections.jsonl"
   },
@@ -14,13 +16,25 @@
   "scoring": {
     "script": "scoring/detect.py",
     "out_jsonl": "../precompute/output/scoring_detections.jsonl",
-    "visualize": true 
+    "visualize": true
   },
-  
+
   "court": {
     "script": "court/keypoints.py",
     "model": "models/court.pt",
     "out_jsonl": "../precompute/output/court_detections.jsonl"
+  },
+
+  "teams": {
+    "team_1": "China",
+    "team_2": "Indonesia"
+  },
+
+  "team_sides": {
+    "left_side": "China",
+    "right_side": "Indonesia",
+    "switch_sides": true,
+    "halftime": "00:26:14"
   },
 
   "pose": {

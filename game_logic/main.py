@@ -1,9 +1,17 @@
-# main.py
+# game_logic/main.py
 import json
 import os
+import sys
 
 CONFIG_PATH = os.environ.get("GATHER_CONFIG", "config.json")
-PRECOMPUTE_BASE = "../precompute"
+#PRECOMPUTE_BASE = "../precompute"
+
+# allow importing precompute/helpers (read_frame_at) from game_logic
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+PRECOMPUTE_BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "precompute"))
+sys.path.append(PRECOMPUTE_BASE)
+
+from helpers.frame_utils import frame_name_to_index  # local helper lives in game_logic/helpers
 
 from identify_shooter import IdentifyShooter
 from helpers.load_jsonl import load_jsonl
@@ -11,12 +19,23 @@ from hoop_shadow_event import HoopShadowForEvent
 from tactical_view_converter import TacticalViewConverter
 from distance_to_hoop_drawer import DistanceToHoopDrawer
 from height_estimator import HeightEstimator
+from assign_team2 import HoopSideTeamAssigner
 
-from assign_team import TeamPrototype, HipColorAssigner
+"""
+#from assign_team_video import TeamPrototype, HipColorAssigner
+from assign_team_zeroshot import ZeroShotTeamAssigner, ZeroShotConfig
+"""
+from helpers.scoring_utils import get_video_fps_strict, hms_from_frame, points_to_value
 
-# --- 1/2/3-point differentiator (pure module, no CLI) ---
+"""
+from assign_team_side import (
+    normalize_team_sides_time_to_frames, SideSchedule,
+    load_hoop_index, frame_size, video_num_frames, assign_team_by_side
+)
+"""
+
+# 1/2/3-point differentiator (unchanged)
 from differentiate_points import (
-    build_frame_order,
     index_pose_by_frame,
     index_court_by_frame,
     decision_for_event,
@@ -26,13 +45,22 @@ from differentiate_points import (
 with open(CONFIG_PATH, "r") as f:
     C = json.load(f)
 
-# I/O paths (resolve relative to ../precompute)
-frames_dir_rel   = C.get("frames_dir")                       # e.g., "frames/006"
-frames_dir_full  = os.path.join(PRECOMPUTE_BASE, frames_dir_rel)
+ROOT = os.path.abspath(os.path.dirname(__file__))
+
+def _resolve(p: str) -> str:
+    return p if os.path.isabs(p) else os.path.abspath(os.path.join(ROOT, p))
+
+# Make video_path absolute (so it works no matter where you run Python from)
+video_path = _resolve(C.get("video_path"))
+
+frames_dir_rel   = C.get("frames_dir")                   # optional fallback if you still have PNGs
+frames_dir_full  = os.path.join(PRECOMPUTE_BASE, frames_dir_rel) if frames_dir_rel else None
 
 scoring_jsonl    = os.path.join(PRECOMPUTE_BASE, C["scoring"]["out_jsonl"])
 pose_jsonl_path  = os.path.join(PRECOMPUTE_BASE, C["pose"]["out_jsonl"])
 court_jsonl_path = os.path.join(PRECOMPUTE_BASE, C["court"]["out_jsonl"])
+
+hoop_side_assigner = HoopSideTeamAssigner()
 
 # Optional: hoop-shadow debug jsonl path (cleared on start)
 out_path = (C.get("hoop_shadow", {}) or {}).get("out_jsonl") \
@@ -43,17 +71,16 @@ if os.path.exists(out_path):
 # Where we’ll write final per-event summaries
 summary_out_jsonl = os.path.join(PRECOMPUTE_BASE, "output", "game_logic_summary.jsonl")
 os.makedirs(os.path.dirname(summary_out_jsonl), exist_ok=True)
-# start fresh
 if os.path.exists(summary_out_jsonl):
     os.remove(summary_out_jsonl)
 
 # ------------------ INSTANTIATE ------------------
 shooter = IdentifyShooter()
 tvc = TacticalViewConverter(court_image_path="basketball_court.png")
-shadow = HoopShadowForEvent(tvc, config_path="config.json", write_output=True)
+shadow = HoopShadowForEvent(tvc, config_path="config_video.json", write_output=True)
 estimator = HeightEstimator(
     config_path=CONFIG_PATH,
-    require_vertical_ok_for_scale=False,  # set True if you want stricter scaling
+    require_vertical_ok_for_scale=False,
     use_eye_ratio=True,
     eye_to_height_ratio=0.93,
     nose_to_height_ratio=0.96,
@@ -61,18 +88,52 @@ estimator = HeightEstimator(
     nose_to_vertex_add_m=0.10
 )
 drawer = DistanceToHoopDrawer(
-    config_path="config.json",
+    config_path="config_video.json",
     out_root=os.path.join(PRECOMPUTE_BASE, "output", "hoop_shadow_viz"),
     require_vertical_ok=False
 )
 
+"""
 TEAM_A = TeamPrototype(name="RED",   hue_deg=176.5, sat_mean=0.82, a_med=185, b_med=162)
 TEAM_B = TeamPrototype(name="WHITE", hue_deg=154.0, sat_mean=0.05, a_med=133, b_med=124)
-assigner = HipColorAssigner(frames_dir_full, TEAM_A, TEAM_B)
 
-# ------------------ BUILD INDEXES ONCE ------------------
-# differentiate_points expects frame *filenames* (e.g. "frame_001.png")
-frame_order = build_frame_order(frames_dir_rel, precomp_base=PRECOMPUTE_BASE)
+# Pass frames_dir_full if you still have frames, else just rely on video_path
+assigner = HipColorAssigner(TEAM_A, TEAM_B, video_path=video_path)
+"""
+"""
+zs_cfg = ZeroShotConfig(
+    team1_label="RED",
+    team2_label="WHITE",
+    team1_text="red basketball jersey red shorts",
+    team2_text="white basketball jersey white shorts",
+    conf_thresh=0.05,
+    torso_margin_px=28,
+    min_box=40,
+)
+assigner = ZeroShotTeamAssigner(video_path=video_path, cfg=zs_cfg)
+"""
+
+# ------------------ FRAME ORDER FROM JSONLs ------------------
+def collect_frames_from_jsonls(*paths):
+    names = set()
+    for p in paths:
+        with open(p, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                nm = row.get("frame")
+                if isinstance(nm, str):
+                    names.add(nm)
+                frs = row.get("frames")
+                if isinstance(frs, list):
+                    for fr in frs:
+                        nm2 = fr.get("frame")
+                        if isinstance(nm2, str):
+                            names.add(nm2)
+    return sorted(names, key=frame_name_to_index)
+
+frame_order = collect_frames_from_jsonls(pose_jsonl_path, court_jsonl_path, scoring_jsonl)
 pose_idx    = index_pose_by_frame(pose_jsonl_path)
 court_idx   = index_court_by_frame(court_jsonl_path)
 print(f"[differentiate] frames={len(frame_order)} pose={len(pose_idx)} court={len(court_idx)}")
@@ -84,61 +145,141 @@ def main():
         print(f"[WARN] No scoring events in: {scoring_jsonl}")
         return
 
+    # ---- scoring output setup ----
+    if not video_path:
+        raise RuntimeError("[CONFIG] video_path is required to compute timestamps reliably.")
+    fps = get_video_fps_strict(video_path)  # read from actual video (most reliable)
+
+    """
+    # --- Team-side schedule (timestamps -> frames) + hoop index ---
+    team_side_rows_raw = C.get("team_sides") or []
+    total_frames = video_num_frames(video_path)
+    team_side_rows = normalize_team_sides_time_to_frames(team_side_rows_raw, fps, total_frames)
+    side_schedule = SideSchedule(team_side_rows)
+    """
+
+    """
+    hoop_jsonl_path = os.path.join(PRECOMPUTE_BASE, (C.get("hoop", {}) or {}).get("out_jsonl", ""))
+    hoop_cx_index = load_hoop_index(hoop_jsonl_path)
+    video_w, _ = frame_size(video_path)
+    """
+
+    score_rows = []
+    score_input_json = os.path.join(PRECOMPUTE_BASE, "output", "score_input.json")
+    os.makedirs(os.path.dirname(score_input_json), exist_ok=True)
+
     with open(summary_out_jsonl, "a", encoding="utf-8") as out_f:
         for ev in scoring_events:
             # 1) Shooter identification
             result = shooter.identify_shooter(ev)
-            if result == -1:
-                print("Shooter not identified — skipping rest of pipeline")
-                continue
 
-            print(result)
+            # Normalize: supports (-1), None, or dict missing fields
+            no_shooter = (
+                result is None
+                or (isinstance(result, int) and result == -1)
+                or (isinstance(result, dict) and (result.get("person_index") is None or result.get("shooter_frame") is None))
+            )
 
+            if no_shooter:
+                # choose a stable frame for ordering/timestamp
+                frame_for_ts = ev.get("frame") or ev.get("trigger_frame")
+                ts = None
+                if frame_for_ts:
+                    try:
+                        ts = hms_from_frame(frame_name_to_index(frame_for_ts), fps)
+                    except Exception:
+                        ts = None
+
+                # Write summary row immediately (keeps JSONL order)
+                out_f.write(json.dumps({
+                    "event_id": ev.get("event_id") or ev.get("scoring_event_count"),
+                    "frame": frame_for_ts,
+                    "shooter": None,
+                    "person_index": None,
+                    "shadow_rows_written": 0,
+                    "height_estimate_m": None,
+                    "team_label": "UNKNOWN",
+                    "team_confidence": 0.0,
+                    "points_label": "UNKNOWN",
+                    "points_reason": "no_shooter"
+                }) + "\n")
+
+                # Also add placeholder to score_rows NOW to preserve order
+                score_rows.append({
+                    "event_id": ev.get("event_id") or ev.get("scoring_event_count"),
+                    "timestamp": ts,
+                    "frame": frame_for_ts,
+                    "points": 0,
+                    "points_label": "UNKNOWN",
+                    "height_m": None,
+                    "team": "UNKNOWN"
+                })
+                print({"event_id": ev.get("event_id"), "shooter": None})
+                continue  # skip heavy steps for this event
+
+            # From here on we’re guaranteed to have shooter info
             shooter_frame = result.get("shooter_frame") or result.get("frame") or ev.get("frame")
             person_index  = result.get("person_index")
+            print(result)
 
             # 2) Hoop shadow + distance viz
             shadow_rows = shadow.compute_for_event(ev)
-            _written = drawer.draw_for_event(ev, shadow_rows=shadow_rows)
+            #_written = drawer.draw_for_event(ev, shadow_rows=shadow_rows)
 
             # 3) Height estimation
             height_est = estimator.estimate_for_event(ev, shadow_rows, result)
 
-            # 4) Team assignment (hip-color heuristic)
-            res = assigner.assign_from_pose_jsonl(shooter_frame, int(person_index), pose_jsonl_path, debug=True)
-            team_label, team_conf, dbg = res  # debug=True returns details
-            for line in dbg:
-                print("[assigner]", line)
+            assigned_team = hoop_side_assigner.assign(trigger_frame=shooter_frame)
 
             # 5) 1PT / 2PT / 3PT decision
-            event_for_decision = {**ev, **result}  # ensure trigger_frame, shooter_frame, person_index present
+            event_for_decision = {**ev, **result}
             pt_res = decision_for_event(
                 event_for_decision,
                 frame_order,
                 pose_idx,
                 court_idx,
-                ankle_dist_thresh_px=50.0,  # px to FT line to call 1PT
-                min_ft_hits=1,              # need at least 2/3 frames near line
-                frame_gap_3pt=49,           # >50 frames between trigger and shot -> 3PT
+                ankle_dist_thresh_px=50.0,
+                min_ft_hits=1,
+                frame_gap_3pt=49,
                 debug=True
             )
             points_label  = pt_res["label"]
             points_reason = pt_res.get("reason")
 
-            # 6) Final one-line summary for this event (print + write)
+            # ---- add a compact row for the scoring file (keep order) ----
+            #frame_idx = frame_name_to_index(shooter_frame)
+            trigger_frame = ev.get("frame") or ev.get("trigger_frame")
+            frame_idx = frame_name_to_index(trigger_frame)
+
+            score_rows.append({
+                "event_id": ev.get("event_id") or ev.get("scoring_event_count"),
+                "timestamp": hms_from_frame(frame_idx, fps),   # "HH:MM:SS.mmm"
+                "frame": trigger_frame,                        # "frame_XXXXX.png"
+                "points": points_to_value(points_label),       # 0/1/2/3
+                "points_label": points_label,
+                "height_m": height_est,                        # float or null
+                "team": assigned_team
+            })
+
+            # 6) Final one-line summary (written immediately → preserves order)
             summary = {
                 "event_id": ev.get("event_id") or ev.get("scoring_event_count"),
                 "frame": shooter_frame,
-                "person_index": int(person_index) if person_index is not None else None,
+                "shooter": True,
+                #"person_index": pi_int,
                 "shadow_rows_written": len(shadow_rows),
-                "height_estimate_m": height_est,   # keep units clear
-                "team_label": team_label,
-                "team_confidence": round(team_conf, 3),
-                "points_label": points_label,      # "1PT" | "2PT" | "3PT" | "UNKNOWN"
-                "points_reason": points_reason,    # e.g. "gap>50", "ft_hits>=2", "default"
+                "height_estimate_m": height_est,
+                "team_label": assigned_team,
+                "points_label": points_label,
+                "points_reason": points_reason,
             }
             print(summary)
             out_f.write(json.dumps(summary) + "\n")
+
+    # ---- write the compact scoring input JSON (already in loop order) ----
+    with open(score_input_json, "w", encoding="utf-8") as f:
+        json.dump({"events": score_rows}, f, indent=2, ensure_ascii=False)
+    print(f"[OK] score_input.json -> {score_input_json} (events={len(score_rows)})")
 
 if __name__ == "__main__":
     main()
