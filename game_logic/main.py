@@ -77,7 +77,7 @@ if os.path.exists(summary_out_jsonl):
 # ------------------ INSTANTIATE ------------------
 shooter = IdentifyShooter()
 tvc = TacticalViewConverter(court_image_path="basketball_court.png")
-shadow = HoopShadowForEvent(tvc, config_path="config_video.json", write_output=True)
+shadow = HoopShadowForEvent(tvc, config_path="config.json", write_output=True)
 estimator = HeightEstimator(
     config_path=CONFIG_PATH,
     require_vertical_ok_for_scale=False,
@@ -88,7 +88,7 @@ estimator = HeightEstimator(
     nose_to_vertex_add_m=0.10
 )
 drawer = DistanceToHoopDrawer(
-    config_path="config_video.json",
+    config_path="config.json",
     out_root=os.path.join(PRECOMPUTE_BASE, "output", "hoop_shadow_viz"),
     require_vertical_ok=False
 )
