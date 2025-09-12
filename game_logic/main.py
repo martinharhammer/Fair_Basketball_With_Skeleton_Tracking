@@ -19,7 +19,7 @@ from hoop_shadow_event import HoopShadowForEvent
 from tactical_view_converter import TacticalViewConverter
 from distance_to_hoop_drawer import DistanceToHoopDrawer
 from height_estimator import HeightEstimator
-from assign_team2 import HoopSideTeamAssigner
+from assign_team import HoopSideTeamAssigner
 
 """
 #from assign_team_video import TeamPrototype, HipColorAssigner
