@@ -11,3 +11,13 @@ ball_tracking/training/output
 hoop_detection/datasets
 hoop_detection/runs
 hoop_detection/output
+basketball_analysis/images/*
+basketball_analysis/models/*
+basketball_analysis/output_videos
+basketball_analysis/input_videos/*
+basketball_analysis/stubs
+basketball_analysis/*
+precompute/output
+precompute/debug
+precompute/frames
+precompute/models
