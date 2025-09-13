@@ -1,5 +1,5 @@
 import os, json, cv2, sys
-from precompute.helpers.frame_source import read_frame_at  # absolute import
+from precompute.helpers.frame_source import read_frame_at 
 
 def main():
     CONFIG_PATH = os.environ.get("GATHER_CONFIG", "config.json")
@@ -23,7 +23,6 @@ def main():
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     if VIS: os.makedirs(viz_dir, exist_ok=True)
 
-    # OpenPose bootstrap (kept as-is; this sys.path is specific to OpenPose installation)
     sys.path.append(os.path.join(openpose_root, "build", "python"))
     from openpose import pyopenpose as op
     params = {
