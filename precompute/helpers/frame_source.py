@@ -30,7 +30,6 @@ class FrameSource:
 
     def __iter__(self):
         if self.mode == "video":
-            print("video2")
             i = 0
             while True:
                 ok, frame = self.cap.read()

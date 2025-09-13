@@ -1,36 +1,46 @@
-
 {
   "video_path": "video/seg12_cut.mp4",
 
   "ball": {
-    "script": "ball/inference.py",
-    "output_folder": "output",
-    "out_jsonl": "output/ball_detections.jsonl"
+    "module": "precompute.ball.inference",
+    "output_folder": "output/ball",
+    "out_jsonl": "output/ball/detections.jsonl",
+
+    "hrnet_config": "ball/config_hrnet.yaml",
+    "weights_path": "models/ball.pth.tar",
+
+    "n_frames": 3,
+    "heatmap_threshold": 0.2,
+    "distance_threshold": 5,
+    "history_size": 3
   },
 
   "hoop": {
-    "script": "hoop/inference.py",
+    "module": "precompute.hoop.inference",
     "model": "models/hoop.pt",
-    "out_jsonl": "output/hoop_detections.jsonl"
+    "out_jsonl": "output/hoop/detections.jsonl",
+    "batch_size": 16
+  },
+
+  "court": {
+    "module": "precompute.court.keypoints",
+    "model": "models/court.pt",
+    "out_jsonl": "output/court/keypoints.jsonl",
+    "batch_size": 20
   },
 
   "scoring": {
-    "script": "scoring/detect.py",
-    "out_jsonl": "output/scoring_detections.jsonl",
-    "visualize": false
-  },
-  
-  "court": {
-    "script": "court/keypoints.py",
-    "model": "models/court.pt",
-    "out_jsonl": "output/court_detections.jsonl"
+    "module": "precompute.scoring.detect",
+    "out_jsonl": "output/scoring/events.jsonl",
+    "visualize": false,
+    "viz_dir": "output/scoring_viz"
   },
 
   "pose": {
-    "script": "pose/detect.py",
+    "module": "precompute.pose.detect",
     "openpose_root": "pose/openpose",
     "model_folder": "models/pose_models",
-    "out_jsonl": "output/pose_detections.jsonl",
+    "out_jsonl": "output/pose/windows.jsonl",
     "window_len": 90,
     "net_resolution": "-1x368",
     "visualize": false,
