@@ -3,8 +3,8 @@ import os, json, math
 from typing import List, Tuple, Dict, Any, Optional
 import numpy as np
 
-from .homography import Homography
-from .helpers.config import load_config  # <— added
+from ..homography.homography import Homography
+from ..utils.config import load_config
 
 # rim center offset from baseline (meters)
 HOOP_OFFSET_M = 1.3
