@@ -80,7 +80,6 @@ def _foot_y(person_p: List[float]) -> Optional[float]:
 
 def _eye_or_nose_y(person_p: List[float]) -> Tuple[Optional[float], str]:
     """Prefer the higher (smaller y) of the two eyes; fallback to nose."""
-    print(f"pose: {person_p}")
     eye_ys = []
     ear_ys = []
     for idx in (REYE, LEYE):
@@ -141,11 +140,9 @@ class HeightEstimator:
         # 1) scale from the straightest rim→shadow line (any frame in event)
         best = _pick_best_scale_row(shadow_rows, self.require_vertical_ok_for_scale)
         if not best:
-            print("return1")
             return None
         dy = float(best.get("_dy", 0.0))
         if dy <= 0:
-            print("return2")
             return None
         px_per_m = dy / RIM_TO_FLOOR_M
 
@@ -153,34 +150,28 @@ class HeightEstimator:
         shooter_frame = shooter_result.get("shooter_frame")
         pidx          = shooter_result.get("person_index")
         if shooter_frame is None or pidx is None:
-            print("return3")
             return None
 
         window = _read_pose_window_for_event(ev_id, self.pose_jsonl_path)
         fr = next((f for f in (window.get("frames") or []) if f.get("frame") == shooter_frame), None)
         if not fr:
-            print("return4")
             return None
         people = fr.get("people") or []
         pidx = int(pidx)
         if not (0 <= pidx < len(people)):
-            print("return5")
             return None
         person = people[pidx]
         p = person.get("p")
         if not isinstance(p, list) or len(p) < 3*25:
-            print("return6")
             return None
 
         # 3) ankle/foot → eye (or nose) vertical pixels, same frame
         y_foot = _foot_y(p)
         y_top, seg_type = _eye_or_nose_y(p)
         if y_foot is None or y_top is None:
-            print(f"{y_foot} foot, {y_top} top")
             return None
         seg_dy_px = float(y_foot - y_top)
         if seg_dy_px <= 0:
-            print("return8")
             return None
 
         # 4) convert to meters

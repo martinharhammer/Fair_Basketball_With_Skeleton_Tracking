@@ -14,6 +14,7 @@ from .assign_team import HoopSideTeamAssigner
 from .height_estimation.hoop_shadow_event import HoopShadowForEvent
 from .homography.tactical_view_converter import TacticalViewConverter
 from .height_estimation.height_estimator import HeightEstimator
+from . import compute_new_score as cns
 
 from .differentiate_points import (
     index_pose_by_frame,
@@ -33,6 +34,7 @@ court_jsonl_path = resolve(C["court"]["out_jsonl"])
 # outputs (strict from config)
 summary_out_jsonl = resolve(C["game_logic"]["summary_out_jsonl"])
 score_input_json  = resolve(C["game_logic"]["score_input_json"])
+final_score_txt   = resolve(C["game_logic"]["fair_score"])
 viz_dir           = resolve(C["game_logic"]["viz_dir"])
 hoop_shadow_out   = resolve(C["hoop_shadow"]["out_jsonl"])
 
@@ -41,7 +43,7 @@ CONFIG_ABS = str(Path(CONFIG_ENV).resolve())
 
 shooter = IdentifyShooter()
 tvc = TacticalViewConverter(court_image_path=resolve("basketball_court.png"))
-shadow = HoopShadowForEvent(tvc, config_path=CONFIG_ABS, write_output=True)
+shadow = HoopShadowForEvent(tvc, config_path=CONFIG_ABS, write_output=False)
 estimator = HeightEstimator(
     config_path=CONFIG_ABS,
     require_vertical_ok_for_scale=False,
@@ -66,7 +68,6 @@ ensure_dir(viz_dir)
 frame_order = collect_frames_from_jsonls(pose_jsonl_path, court_jsonl_path, scoring_jsonl)
 pose_idx    = index_pose_by_frame(pose_jsonl_path)
 court_idx   = index_court_by_frame(court_jsonl_path)
-print(f"[differentiate] frames={len(frame_order)} pose={len(pose_idx)} court={len(court_idx)}")
 
 # ------------------ MAIN PIPELINE ------------------
 def main():
@@ -82,7 +83,7 @@ def main():
 
     score_rows = []
 
-    with open(summary_out_jsonl, "a", encoding="utf-8") as out_f:
+    with open(summary_out_jsonl, "w", encoding="utf-8") as out_f:
         for ev in scoring_events:
             result = shooter.identify_shooter(ev)
 
@@ -124,11 +125,10 @@ def main():
                     "height_m": None,
                     "team": "UNKNOWN"
                 })
-                print({"event_id": ev.get("event_id"), "shooter": None})
-                continue  # skip heavy steps for this event
+                continue
 
             shooter_frame = result.get("shooter_frame") or result.get("frame") or ev.get("frame")
-            print(result)
+            #print(result)
 
             shadow_rows = shadow.compute_for_event(ev)
             # _written = drawer.draw_for_event(ev, shadow_rows=shadow_rows)
@@ -145,7 +145,7 @@ def main():
                 ankle_dist_thresh_px=50.0,
                 min_ft_hits=1,
                 frame_gap_3pt=49,
-                debug=True
+                debug=False
             )
             points_label  = pt_res["label"]
             points_reason = pt_res.get("reason")
@@ -173,13 +173,18 @@ def main():
                 "points_label": points_label,
                 "points_reason": points_reason,
             }
-            print(summary)
+            #print(summary)
             out_f.write(json.dumps(summary) + "\n")
 
     # ---- write the compact scoring input JSON (already in loop order) ----
     with open(score_input_json, "w", encoding="utf-8") as f:
         json.dump({"events": score_rows}, f, indent=2, ensure_ascii=False)
-    print(f"[OK] score_input.json -> {score_input_json} (events={len(score_rows)})")
+    #print(f"[Point] Output saved: {score_input_json} (events={len(score_rows)})")
+
+    ensure_dir(os.path.dirname(final_score_txt))
+    cns.JSON_FILE = score_input_json
+    cns.OUTPUT_TXT = final_score_txt
+    cns.main()
 
 if __name__ == "__main__":
     main()
