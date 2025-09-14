@@ -4,7 +4,7 @@
 
   "ball": {
     "module": "precompute.ball.inference",
-    "output_folder": "output/precompute/ball",
+    "output_folder": "output/precompute",
     "out_jsonl": "output/precompute/ball.jsonl",
 
     "hrnet_config": "precompute/ball/config_hrnet.yaml",
