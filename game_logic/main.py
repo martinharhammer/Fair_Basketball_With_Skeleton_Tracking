@@ -2,16 +2,15 @@ import json
 import os
 from pathlib import Path
 
-from .helpers.config import load_config
-from .helpers.frame_utils import frame_name_to_index
+from .utils import load_config, frame_name_to_index, get_video_fps_strict, hms_from_frame, points_to_value
+from .utils.io import load_jsonl, collect_frames_from_jsonls, ensure_dir
+
 from .identify_shooter import IdentifyShooter
-from .helpers.load_jsonl import load_jsonl
 from .hoop_shadow_event import HoopShadowForEvent
 from .tactical_view_converter import TacticalViewConverter
 from .distance_to_hoop_drawer import DistanceToHoopDrawer
 from .height_estimator import HeightEstimator
 from .assign_team import HoopSideTeamAssigner
-from .helpers.scoring_utils import get_video_fps_strict, hms_from_frame, points_to_value
 
 from .differentiate_points import (
     index_pose_by_frame,
@@ -29,7 +28,7 @@ scoring_jsonl    = resolve(C["scoring"]["out_jsonl"])
 pose_jsonl_path  = resolve(C["pose"]["out_jsonl"])
 court_jsonl_path = resolve(C["court"]["out_jsonl"])
 
-# outputs
+# outputs (strict from config)
 summary_out_jsonl = resolve(C["game_logic"]["summary_out_jsonl"])
 score_input_json  = resolve(C["game_logic"]["score_input_json"])
 viz_dir           = resolve(C["game_logic"]["viz_dir"])
@@ -51,37 +50,17 @@ estimator = HeightEstimator(
     nose_to_vertex_add_m=0.10,
 )
 hoop_side_assigner = HoopSideTeamAssigner(config_path=CONFIG_ABS)
-
 drawer = DistanceToHoopDrawer(
     config_path=CONFIG_ABS,
     out_root=viz_dir,
     require_vertical_ok=False,
 )
 
-os.makedirs(os.path.dirname(summary_out_jsonl), exist_ok=True)
-os.makedirs(os.path.dirname(score_input_json), exist_ok=True)
-os.makedirs(viz_dir, exist_ok=True)
+ensure_dir(os.path.dirname(summary_out_jsonl))
+ensure_dir(os.path.dirname(score_input_json))
+ensure_dir(viz_dir)
 
 # ------------------ FRAME ORDER FROM JSONLs ------------------
-def collect_frames_from_jsonls(*paths):
-    names = set()
-    for p in paths:
-        with open(p, "r", encoding="utf-8") as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                row = json.loads(line)
-                nm = row.get("frame")
-                if isinstance(nm, str):
-                    names.add(nm)
-                frs = row.get("frames")
-                if isinstance(frs, list):
-                    for fr in frs:
-                        nm2 = fr.get("frame")
-                        if isinstance(nm2, str):
-                            names.add(nm2)
-    return sorted(names, key=frame_name_to_index)
-
 frame_order = collect_frames_from_jsonls(pose_jsonl_path, court_jsonl_path, scoring_jsonl)
 pose_idx    = index_pose_by_frame(pose_jsonl_path)
 court_idx   = index_court_by_frame(court_jsonl_path)
@@ -147,14 +126,12 @@ def main():
                 continue  # skip heavy steps for this event
 
             shooter_frame = result.get("shooter_frame") or result.get("frame") or ev.get("frame")
-            person_index  = result.get("person_index")
             print(result)
 
             shadow_rows = shadow.compute_for_event(ev)
-            #_written = drawer.draw_for_event(ev, shadow_rows=shadow_rows)
+            # _written = drawer.draw_for_event(ev, shadow_rows=shadow_rows)
 
             height_est = estimator.estimate_for_event(ev, shadow_rows, result)
-
             assigned_team = hoop_side_assigner.assign(trigger_frame=shooter_frame)
 
             event_for_decision = {**ev, **result}
@@ -188,7 +165,6 @@ def main():
                 "event_id": ev.get("event_id") or ev.get("scoring_event_count"),
                 "frame": shooter_frame,
                 "shooter": True,
-                #"person_index": pi_int,
                 "shadow_rows_written": len(shadow_rows),
                 "height_estimate_m": height_est,
                 "team_label": assigned_team,
