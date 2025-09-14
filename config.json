@@ -5,7 +5,7 @@
   "ball": {
     "module": "precompute.ball.inference",
     "output_folder": "output/precompute",
-    "out_jsonl": "output/precompute/ball.jsonl",
+    "out_jsonl": "output/precompute/ball_detections.jsonl",
 
     "hrnet_config": "precompute/ball/config_hrnet.yaml",
     "weights_path": "precompute/models/ball.pth.tar",
@@ -19,20 +19,20 @@
   "hoop": {
     "module": "precompute.hoop.inference",
     "model": "precompute/models/hoop.pt",
-    "out_jsonl": "output/precompute/hoop.jsonl",
+    "out_jsonl": "output/precompute/hoop_detections.jsonl",
     "batch_size": 16
   },
 
   "court": {
     "module": "precompute.court.keypoints",
     "model": "precompute/models/court.pt",
-    "out_jsonl": "output/precompute/court.jsonl",
+    "out_jsonl": "output/precompute/court_detections.jsonl",
     "batch_size": 20
   },
 
   "scoring": {
     "module": "precompute.scoring.detect",
-    "out_jsonl": "precompute/output/scoring.jsonl",
+    "out_jsonl": "output/precompute/scoring_detections.jsonl",
     "visualize": false,
     "viz_dir": "output/scoring_viz"
   },
@@ -41,7 +41,7 @@
     "module": "precompute.pose.detect",
     "openpose_root": "precompute/pose/openpose",
     "model_folder": "precompute/models/pose_models",
-    "out_jsonl": "output/precompute/pose.jsonl",
+    "out_jsonl": "output/precompute/pose_detections.jsonl",
     "window_len": 90,
     "net_resolution": "-1x368",
     "visualize": false,
@@ -61,7 +61,7 @@
   },
 
   "hoop_shadow": {
-    "out_jsonl": "output/game_logic/hoop_shadow.jsonl"
+    "out_jsonl": "output/game_logic/hoop_detections.jsonl"
   },
   "game_logic": {
     "summary_out_jsonl": "output/game_logic/summary.jsonl",
