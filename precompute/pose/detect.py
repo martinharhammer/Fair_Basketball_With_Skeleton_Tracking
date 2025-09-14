@@ -1,5 +1,6 @@
 import os, json, cv2, sys
-from precompute.helpers.frame_source import read_frame_at 
+from precompute.helpers.frame_source import read_frame_at
+from precompute.helpers.progress import ProgressLogger
 
 def main():
     CONFIG_PATH = os.environ.get("GATHER_CONFIG", "config.json")
@@ -49,6 +50,8 @@ def main():
         def vis(ids): return sum(float(person[i,2]) >= CONF_T for i in ids)
         return (vis(LOWER_IDX_LEFT) >= 2) or (vis(LOWER_IDX_RIGHT) >= 2)
 
+    logger = ProgressLogger(prefix="Pose", log_every=50)
+
     with open(out_path, "w", encoding="utf-8") as jf:
         for ev_id, t in events:
             start = max(0, t - (window_len - 1))
@@ -58,6 +61,7 @@ def main():
                 fname = f"frame_{i:06d}.png"
                 if img is None:
                     event_obj["frames"].append({"frame": fname, "people": []})
+                    logger.tick()
                     continue
 
                 datum = op.Datum(); datum.cvInputData = img
@@ -78,10 +82,11 @@ def main():
                 event_obj["frames"].append({"frame": fname, "people": people_out})
                 if VIS:
                     cv2.imwrite(os.path.join(viz_dir, f"ev{ev_id}_{fname}"), img)
+                logger.tick()
 
             jf.write(json.dumps(event_obj, separators=(",",":"))+"\n")
 
-    print(f"[Pose] Windows → {out_path}")
+    logger.done(f"Output saved: {out_path}")
 
 if __name__ == "__main__":
     main()

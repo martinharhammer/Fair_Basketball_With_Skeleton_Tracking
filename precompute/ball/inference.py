@@ -1,13 +1,16 @@
 import os, json, cv2, torch, numpy as np
 from PIL import Image
-from tqdm import tqdm
 from omegaconf import OmegaConf
+from contextlib import redirect_stdout, redirect_stderr
+import io
 
 from .hrnet import HRNet
 from .preprocessing import ResizeWithEqualScale, SeqTransformCompose
 from .postprocessor import WASBPostprocessor
 
 from precompute.helpers.frame_source import FrameSource, sliding_windows
+from precompute.helpers.progress import ProgressLogger
+
 
 def main():
     # --------------- CONFIGURATION ---------------
@@ -15,17 +18,20 @@ def main():
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         C = json.load(f)
 
-    video_path = C.get("video_path")
-    OUTPUT_FOLDER = C["ball"]["output_folder"]
-    OUT_PATH = C["ball"]["out_jsonl"]
-    HRNET_CFG = C["ball"]["hrnet_config"]
-    WEIGHTS_PATH = C["ball"]["weights_path"]
+    video_path    = C.get("video_path")
+    BALL          = C["ball"]
+    OUTPUT_FOLDER = BALL["output_folder"]
+    OUT_PATH      = BALL["out_jsonl"]
+    HRNET_CFG     = BALL["hrnet_config"]
+    WEIGHTS_PATH  = BALL["weights_path"]
+
+    N_FRAMES  = int(BALL.get("n_frames", 3))
+    DEBUG     = bool(BALL.get("debug", False))
+    LOG_EVERY = int(BALL.get("log_every", 50))
+    DEVICE    = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
     os.makedirs(os.path.dirname(OUT_PATH) or ".", exist_ok=True)
-
-    N_FRAMES = int(C["ball"].get("n_frames", 3))
-    DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # --------------- LOAD CONFIG ---------------
     cfg = OmegaConf.load(HRNET_CFG)
@@ -39,9 +45,9 @@ def main():
 
     # --------------- POSTPROCESSOR ---------------
     post = WASBPostprocessor(
-        heatmap_threshold=float(C["ball"].get("heatmap_threshold", 0.2)),
-        distance_threshold=int(C["ball"].get("distance_threshold", 5)),
-        history_size=int(C["ball"].get("history_size", 3)),
+        heatmap_threshold=float(BALL.get("heatmap_threshold", 0.2)),
+        distance_threshold=int(BALL.get("distance_threshold", 5)),
+        history_size=int(BALL.get("history_size", 3)),
     )
 
     # --------------- PREPROCESSOR ---------------
@@ -59,20 +65,25 @@ def main():
     eye2x3 = _torch.tensor([[1, 0, 0], [0, 1, 0]], dtype=_torch.float32)
     affine_mats = {0: eye2x3.unsqueeze(0).unsqueeze(0).repeat(1, N_FRAMES, 1, 1)}
 
+    total = (src.count - N_FRAMES + 1) if (src.count is not None) else None
+    logger = ProgressLogger("Ball", total=total, log_every=LOG_EVERY)
+
     # --------------- INFERENCE LOOP ---------------
     with open(OUT_PATH, "w") as jf:
-        for center_idx, names, frames_bgr in tqdm(
-            sliding_windows(iter(src), window=N_FRAMES, step=1),
-            desc='Ball Inference',
-            total=max(0, src.count - N_FRAMES + 1)
-        ):
+        for center_idx, names, frames_bgr in sliding_windows(iter(src), window=N_FRAMES, step=1):
             pil_frames = [Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)) for f in frames_bgr]
-
             inp = seq_transform(pil_frames).unsqueeze(0).to(DEVICE)
+
             with _torch.no_grad():
                 preds = model(inp)
 
-            results = post.run(preds, affine_mats)
+            if DEBUG:
+                results = post.run(preds, affine_mats)
+            else:
+                _sink_out, _sink_err = io.StringIO(), io.StringIO()
+                with redirect_stdout(_sink_out), redirect_stderr(_sink_err):
+                    results = post.run(preds, affine_mats)
+
             scale = list(preds.keys())[0]
             mid = post.mid
             dets = results[0][mid][scale]
@@ -97,7 +108,9 @@ def main():
             }
             jf.write(json.dumps(record) + "\n")
 
-    print(f"[Ball] Done! Wrote detections → {OUT_PATH}")
+            logger.tick()
+
+    logger.done(f"Output saved: {OUT_PATH}")
 
 if __name__ == "__main__":
     main()

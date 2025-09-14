@@ -7,20 +7,16 @@ class FrameSource:
     Yields (idx, name, frame) where name looks like 'frame_000123.png'.
     """
     def __init__(self, video_path=None, frames_dir=None):
-        print(f"video: {video_path}, frames: {frames_dir}")
-        assert (video_path is None) ^ (frames_dir is None), "Provide either video_path or frames_dir (not both)"
         self.mode = "video" if video_path else "folder"
         self.video_path = video_path
         self.frames_dir = frames_dir
         if self.mode == "video":
-            print("video")
             self.cap = cv2.VideoCapture(video_path)
             if not self.cap.isOpened():
                 raise RuntimeError(f"Cannot open video: {video_path}")
             self.fps = float(self.cap.get(cv2.CAP_PROP_FPS) or 30.0)
             self.count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         else:
-            print("frames")
             exts = ("*.png","*.jpg","*.jpeg")
             paths = []
             for e in exts: paths += glob.glob(os.path.join(frames_dir, e))
@@ -38,7 +34,6 @@ class FrameSource:
                 i += 1
             self.cap.release()
         else:
-            print("frames")
             for i, p in enumerate(self.paths):
                 img = cv2.imread(p)
                 if img is None: continue

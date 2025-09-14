@@ -1,6 +1,7 @@
 from ultralytics import YOLO
 import os, sys, json
 from precompute.helpers.frame_source import FrameSource
+from precompute.helpers.progress import ProgressLogger
 
 def extract_keypoints(result):
     kps = result.keypoints
@@ -35,15 +36,19 @@ def main():
 
     batch_size = int(court_cfg.get("batch_size", 20))
     src = FrameSource(video_path=video_path)
+    total_frames = src.count or None
     print(f"[Court] Input frames: {src.count}")
     if src.count == 0:
         sys.exit("[court] No frames found (video unreadable or folder empty).")
+
+    logger = ProgressLogger(prefix="Court", total=total_frames, log_every=50)
 
     with open(out_path, "w", encoding="utf-8") as jf:
         batch_imgs, batch_names = [], []
         for _, name, frame in src:
             batch_imgs.append(frame)
             batch_names.append(name)
+            logger.tick()
             if len(batch_imgs) == batch_size:
                 results = model(batch_imgs, imgsz=960, conf=0.10, iou=0.60, verbose=False)
                 for nm, res in zip(batch_names, results):
@@ -57,7 +62,7 @@ def main():
                 rec = {"frame": nm, "keypoints": extract_keypoints(res)}
                 jf.write(json.dumps(rec) + "\n")
 
-    print(f"[Court] Detections saved to {out_path}")
+    logger.done(f"Output saved: {out_path}")
 
 if __name__ == "__main__":
     main()

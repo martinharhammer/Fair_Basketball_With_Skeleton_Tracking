@@ -1,5 +1,6 @@
 import os, json, cv2
 from precompute.helpers.frame_source import FrameSource
+from precompute.helpers.progress import ProgressLogger
 
 def topleft_from_center(cx, cy, w, h):
     x = int(round(cx - w/2.0)); y = int(round(cy - h/2.0))
@@ -48,6 +49,8 @@ def main():
     src = FrameSource(video_path=video_path)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     os.makedirs(out_folder, exist_ok=True)
+
+    logger = ProgressLogger(prefix="Scoring", total=src.count or None, log_every=50)
 
     with open(out_path, "w", encoding="utf-8") as jf:
         for idx, fname, img in src:
@@ -101,7 +104,9 @@ def main():
                 if below:  cv2.rectangle(img, (below[0],below[1]), (below[0]+below[2], below[1]+below[3]), (0,255,0),1)
                 cv2.imwrite(os.path.join(out_folder, fname), img)
 
-    print(f"[Scoring] Events: {ev_count} → {out_path}")
+            logger.tick()
+
+    logger.done(f"Output saved: {out_path}")
 
 if __name__ == "__main__":
     main()

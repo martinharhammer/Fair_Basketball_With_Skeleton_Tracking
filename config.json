@@ -41,7 +41,7 @@
     "module": "precompute.pose.detect",
     "openpose_root": "precompute/pose/openpose",
     "model_folder": "precompute/models/pose_models",
-    "out_jsonl": "output/precompute/pose25.jsonl",
+    "out_jsonl": "output/precompute/pose.jsonl",
     "window_len": 90,
     "net_resolution": "-1x368",
     "visualize": false,
