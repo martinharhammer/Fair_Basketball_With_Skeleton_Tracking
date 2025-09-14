@@ -1,77 +1,66 @@
 import json
 import os
-import sys
+from pathlib import Path
 
-CONFIG_PATH = os.environ.get("GATHER_CONFIG", "config.json")
+from .helpers.config import load_config
+from .helpers.frame_utils import frame_name_to_index
+from .identify_shooter import IdentifyShooter
+from .helpers.load_jsonl import load_jsonl
+from .hoop_shadow_event import HoopShadowForEvent
+from .tactical_view_converter import TacticalViewConverter
+from .distance_to_hoop_drawer import DistanceToHoopDrawer
+from .height_estimator import HeightEstimator
+from .assign_team import HoopSideTeamAssigner
+from .helpers.scoring_utils import get_video_fps_strict, hms_from_frame, points_to_value
 
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-PRECOMPUTE_BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "precompute"))
-sys.path.append(PRECOMPUTE_BASE)
-
-from helpers.frame_utils import frame_name_to_index
-from identify_shooter import IdentifyShooter
-from helpers.load_jsonl import load_jsonl
-from hoop_shadow_event import HoopShadowForEvent
-from tactical_view_converter import TacticalViewConverter
-from distance_to_hoop_drawer import DistanceToHoopDrawer
-from height_estimator import HeightEstimator
-from assign_team import HoopSideTeamAssigner
-from helpers.scoring_utils import get_video_fps_strict, hms_from_frame, points_to_value
-
-from differentiate_points import (
+from .differentiate_points import (
     index_pose_by_frame,
     index_court_by_frame,
     decision_for_event,
 )
 
 # ------------------ CONFIG / PATHS ------------------
-with open(CONFIG_PATH, "r") as f:
-    C = json.load(f)
+CONFIG_ENV = os.environ.get("GATHER_CONFIG", "config.json")
+C, resolve = load_config(CONFIG_ENV)
 
-ROOT = os.path.abspath(os.path.dirname(__file__))
+video_path       = resolve(C.get("video_path"))
+frames_dir_full  = resolve(C.get("frames_dir")) if C.get("frames_dir") else None
+scoring_jsonl    = resolve(C["scoring"]["out_jsonl"])
+pose_jsonl_path  = resolve(C["pose"]["out_jsonl"])
+court_jsonl_path = resolve(C["court"]["out_jsonl"])
 
-def _resolve(p: str) -> str:
-    return p if os.path.isabs(p) else os.path.abspath(os.path.join(ROOT, p))
-
-video_path = _resolve(C.get("video_path"))
-
-frames_dir_rel   = C.get("frames_dir")
-frames_dir_full  = os.path.join(PRECOMPUTE_BASE, frames_dir_rel) if frames_dir_rel else None
-
-scoring_jsonl    = os.path.join(PRECOMPUTE_BASE, C["scoring"]["out_jsonl"])
-pose_jsonl_path  = os.path.join(PRECOMPUTE_BASE, C["pose"]["out_jsonl"])
-court_jsonl_path = os.path.join(PRECOMPUTE_BASE, C["court"]["out_jsonl"])
-
-hoop_side_assigner = HoopSideTeamAssigner()
-
-out_path = (C.get("hoop_shadow", {}) or {}).get("out_jsonl") \
-           or os.path.join(PRECOMPUTE_BASE, "output", "hoop_shadow_points.jsonl")
-if os.path.exists(out_path):
-    os.remove(out_path)
-
-summary_out_jsonl = os.path.join(PRECOMPUTE_BASE, "output", "game_logic_summary.jsonl")
-os.makedirs(os.path.dirname(summary_out_jsonl), exist_ok=True)
-if os.path.exists(summary_out_jsonl):
-    os.remove(summary_out_jsonl)
+# outputs
+summary_out_jsonl = resolve(C["game_logic"]["summary_out_jsonl"])
+score_input_json  = resolve(C["game_logic"]["score_input_json"])
+viz_dir           = resolve(C["game_logic"]["viz_dir"])
+hoop_shadow_out   = resolve(C["hoop_shadow"]["out_jsonl"])
 
 # ------------------ INSTANTIATE ------------------
+CONFIG_ABS = str(Path(CONFIG_ENV).resolve())
+
 shooter = IdentifyShooter()
-tvc = TacticalViewConverter(court_image_path="basketball_court.png")
-shadow = HoopShadowForEvent(tvc, config_path="config.json", write_output=True)
+tvc = TacticalViewConverter(court_image_path=resolve("basketball_court.png"))
+shadow = HoopShadowForEvent(tvc, config_path=CONFIG_ABS, write_output=True)
 estimator = HeightEstimator(
-    config_path=CONFIG_PATH,
+    config_path=CONFIG_ABS,
     require_vertical_ok_for_scale=False,
     use_eye_ratio=True,
     eye_to_height_ratio=0.93,
     nose_to_height_ratio=0.96,
     eye_to_vertex_add_m=0.12,
-    nose_to_vertex_add_m=0.10
+    nose_to_vertex_add_m=0.10,
 )
+hoop_side_assigner = HoopSideTeamAssigner(config_path=CONFIG_ABS)
+
 drawer = DistanceToHoopDrawer(
-    config_path="config.json",
-    out_root=os.path.join(PRECOMPUTE_BASE, "output", "hoop_shadow_viz"),
-    require_vertical_ok=False
+    config_path=CONFIG_ABS,
+    out_root=viz_dir,
+    require_vertical_ok=False,
 )
+
+os.makedirs(os.path.dirname(summary_out_jsonl), exist_ok=True)
+os.makedirs(os.path.dirname(score_input_json), exist_ok=True)
+os.makedirs(viz_dir, exist_ok=True)
 
 # ------------------ FRAME ORDER FROM JSONLs ------------------
 def collect_frames_from_jsonls(*paths):
@@ -111,8 +100,6 @@ def main():
     fps = get_video_fps_strict(video_path)  # read from actual video (most reliable)
 
     score_rows = []
-    score_input_json = os.path.join(PRECOMPUTE_BASE, "output", "score_input.json")
-    os.makedirs(os.path.dirname(score_input_json), exist_ok=True)
 
     with open(summary_out_jsonl, "a", encoding="utf-8") as out_f:
         for ev in scoring_events:

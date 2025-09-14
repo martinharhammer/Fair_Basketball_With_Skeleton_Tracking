@@ -3,7 +3,8 @@ import os, json, math
 from typing import List, Tuple, Dict, Any, Optional
 import numpy as np
 
-from homography import Homography
+from .homography import Homography
+from .helpers.config import load_config  # <— added
 
 # rim center offset from baseline (meters)
 HOOP_OFFSET_M = 1.3
@@ -16,7 +17,7 @@ def rim_top_mid_from_cxcywh(b):
     return (xc, yc - 0.5 * h)
 
 def _select_shadow_nearest_x(mx, lh, rh):
-    c=[]; 
+    c=[];
     if lh is not None: c.append((abs(lh[0]-mx), lh))
     if rh is not None: c.append((abs(rh[0]-mx), rh))
     return min(c)[1] if c else None
@@ -51,13 +52,13 @@ class HoopShadowForEvent:
         self.min_dy_px = min_dy_px
         self.write_output = write_output
 
-        with open(config_path, "r", encoding="utf-8") as f:
-            C = json.load(f)
-        self.pose_jsonl_path = C["pose"]["out_jsonl"]
-        self.court_path = C["court"]["out_jsonl"]
-        self.hoop_path  = C["hoop"]["out_jsonl"]
-        self.out_path   = (C.get("hoop_shadow", {}) or {}).get("out_jsonl") \
-                          or "../precompute/output/hoop_shadow_points.jsonl"
+        # use config-anchored resolver (no other changes)
+        C, resolve = load_config(config_path)
+        self.pose_jsonl_path = resolve(C["pose"]["out_jsonl"])
+        self.court_path      = resolve(C["court"]["out_jsonl"])
+        self.hoop_path       = resolve(C["hoop"]["out_jsonl"])
+        self.out_path        = resolve((C.get("hoop_shadow", {}) or {}).get("out_jsonl")
+                                       or "precompute/output/hoop_shadow_points.jsonl")
         os.makedirs(os.path.dirname(self.out_path), exist_ok=True)
 
         self._court_by_frame = self._index_by_frame(self.court_path)

@@ -58,8 +58,14 @@ class HoopSideTeamAssigner:
         with open(config_path, "r", encoding="utf-8") as f:
             C = json.load(f)
 
-        self.video_path = _abs_here(C["video_path"])
-        self.hoop_jsonl = _abs_precompute(C["hoop"]["out_jsonl"])
+        # --- minimal fix: resolve paths relative to the config file's directory ---
+        CFG_DIR = os.path.dirname(os.path.abspath(config_path))
+        def _abs_cfg(p: str) -> str:
+            return p if os.path.isabs(p) else os.path.abspath(os.path.join(CFG_DIR, p))
+
+        self.video_path = _abs_cfg(C["video_path"])
+        self.hoop_jsonl = _abs_cfg(C["hoop"]["out_jsonl"])
+        # -------------------------------------------------------
 
         # team sides config
         ts = C.get("team_sides") or {}

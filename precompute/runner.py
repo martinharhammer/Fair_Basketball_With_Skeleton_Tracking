@@ -1,9 +1,10 @@
+# precompute/run.py
 import os, json, subprocess, sys
 from pathlib import Path
 
-PKG_DIR = Path(__file__).resolve().parent
-REPO_ROOT = PKG_DIR.parent
-DEFAULT_CONFIG = str((PKG_DIR / "config.json").resolve())
+PKG_DIR = Path(__file__).resolve().parent          # .../precompute
+REPO_ROOT = PKG_DIR.parent                         # repo root
+DEFAULT_CONFIG = str((REPO_ROOT / "config.json").resolve())  # <— root config
 CONFIG_PATH = os.environ.get("GATHER_CONFIG", DEFAULT_CONFIG)
 
 def run_step(mod: str, tag: str, extra_env: dict | None = None):
@@ -13,6 +14,7 @@ def run_step(mod: str, tag: str, extra_env: dict | None = None):
     env = os.environ.copy()
     env["GATHER_CONFIG"] = CONFIG_PATH
 
+    # Ensure the repo is importable as a package root
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = (
         str(REPO_ROOT) if not existing else f"{REPO_ROOT}{os.pathsep}{existing}"
@@ -23,7 +25,7 @@ def run_step(mod: str, tag: str, extra_env: dict | None = None):
     subprocess.run(
         [sys.executable, "-m", mod],
         check=True,
-        cwd=str(PKG_DIR),
+        cwd=str(REPO_ROOT),   # <— run from repo root so config-relative paths work
         env=env,
     )
 
