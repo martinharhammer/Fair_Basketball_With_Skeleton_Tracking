@@ -11,10 +11,10 @@ from .utils.video import get_video_fps_strict
 from .identify_shooter import IdentifyShooter
 from .distance_to_hoop_drawer import DistanceToHoopDrawer
 from .assign_team import HoopSideTeamAssigner
-from .height_estimation.hoop_shadow_event import HoopShadowForEvent
+from .height_estimation.hoop_shadow import HoopShadowForEvent
 from .homography.tactical_view_converter import TacticalViewConverter
-from .height_estimation.height_estimator import HeightEstimator
-from . import compute_new_score as cns
+from .height_estimation.estimate_height import HeightEstimator
+from . import compute_fair_score as cns
 
 from .differentiate_points import (
     index_pose_by_frame,
