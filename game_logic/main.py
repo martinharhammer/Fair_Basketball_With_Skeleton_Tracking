@@ -43,7 +43,7 @@ CONFIG_ABS = str(Path(CONFIG_ENV).resolve())
 
 shooter = IdentifyShooter()
 tvc = TacticalViewConverter(court_image_path=resolve("basketball_court.png"))
-shadow = HoopShadowForEvent(tvc, config_path=CONFIG_ABS, write_output=False)
+shadow = HoopShadowForEvent(tvc, config_path=CONFIG_ABS)
 estimator = HeightEstimator(
     config_path=CONFIG_ABS,
     require_vertical_ok_for_scale=False,

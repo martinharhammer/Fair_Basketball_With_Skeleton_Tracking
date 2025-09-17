@@ -6,7 +6,6 @@ import numpy as np
 from ..homography.homography import Homography
 from ..utils.config import load_config
 
-# rim center offset from baseline (meters)
 HOOP_OFFSET_M = 1.3
 DEFAULT_MAX_ANGLE_FROM_VERTICAL_DEG = 10.0
 DEFAULT_MIN_DY_PX = 2.0
@@ -36,39 +35,40 @@ def _read_pose_window_for_event(event_id: Any, pose_jsonl_path: str) -> Dict[str
             if not s: continue
             obj=json.loads(s)
             eid = obj.get("event_id") or obj.get("scoring_event_count")
-            if eid == event_id and obj.get("frames"): return obj
+            if obj.get("frames") and eid == event_id:
+                return obj
     return {}
 
+def _xywh_from_center(b):
+    cx, cy, w, h = map(float, b)
+    x = int(round(cx - w/2.0)); y = int(round(cy - h/2.0))
+    return [x, y, int(round(w)), int(round(h))]
+
 class HoopShadowForEvent:
-    """
-    Create once with your TacticalViewConverter, then call compute_for_event(scoring_event).
-    """
     def __init__(self, tvc, config_path: str = DEFAULT_CONFIG_PATH,
                  angle_thresh_deg: float = DEFAULT_MAX_ANGLE_FROM_VERTICAL_DEG,
-                 min_dy_px: float = DEFAULT_MIN_DY_PX,
-                 write_output: bool = True):
+                 min_dy_px: float = DEFAULT_MIN_DY_PX):
         self.tvc = tvc
         self.angle_thresh_deg = angle_thresh_deg
         self.min_dy_px = min_dy_px
-        self.write_output = write_output
 
-        # use config-anchored resolver (no other changes)
         C, resolve = load_config(config_path)
         self.pose_jsonl_path = resolve(C["pose"]["out_jsonl"])
         self.court_path      = resolve(C["court"]["out_jsonl"])
         self.hoop_path       = resolve(C["hoop"]["out_jsonl"])
         self.out_path        = resolve((C.get("hoop_shadow", {}) or {}).get("out_jsonl")
                                        or "precompute/output/hoop_shadow_points.jsonl")
-        os.makedirs(os.path.dirname(self.out_path), exist_ok=True)
+        self.viz_out_path    = resolve(C["viz"]["height"]["frames_out_jsonl"])
+        self.write_output    = bool(C["viz"]["height"]["visualize"])
+
+        os.makedirs(os.path.dirname(self.viz_out_path) or ".", exist_ok=True)
 
         self._court_by_frame = self._index_by_frame(self.court_path)
         self._hoop_by_frame  = self._index_by_frame(self.hoop_path)
 
-        # Tactical canvas & fixed hoop shadow points in tactical space
         self._tw = float(self.tvc.width)
         self._th = float(self.tvc.height)
 
-        # place hoops HOOP_OFFSET_M from each baseline along the centerline
         x_left  = (HOOP_OFFSET_M / float(self.tvc.actual_width_in_meters)) * self._tw
         x_right = ((float(self.tvc.actual_width_in_meters) - HOOP_OFFSET_M) / float(self.tvc.actual_width_in_meters)) * self._tw
         y_mid   = self._th / 2.0
@@ -89,44 +89,47 @@ class HoopShadowForEvent:
     def _project_one_frame(self, fname: str) -> Dict[str, Any]:
         court = self._court_by_frame.get(fname); hoop = self._hoop_by_frame.get(fname)
         if not court or not hoop:
-            return {"frame": fname, "LH": None, "RH": None, "chosen": None, "vertical_ok": False}
+            return {"frame": fname, "LH": None, "RH": None, "chosen": None, "vertical_ok": False, "hoop_xywh": None}
 
         kps = court.get("keypoints") or []
         if not kps or not kps[0]:
-            return {"frame": fname, "LH": None, "RH": None, "chosen": None, "vertical_ok": False}
+            return {"frame": fname, "LH": None, "RH": None, "chosen": None, "vertical_ok": False, "hoop_xywh": None}
 
         img_pts=[]; tac_pts=[]
-        # IMPORTANT: court.jsonl keypoints index order must match tvc.key_points
-        for i, kp in enumerate(kps[0]):  # (1,N,3) -> iterate N
+        for i, kp in enumerate(kps[0]):
             x, y = float(kp[0]), float(kp[1])
             if x>0.0 and y>0.0:
                 img_pts.append((x,y))
                 tac_pts.append(tuple(map(float, self.tvc.key_points[i])))
 
         if len(img_pts) < 4:
-            return {"frame": fname, "LH": None, "RH": None, "chosen": None, "vertical_ok": False}
+            return {"frame": fname, "LH": None, "RH": None, "chosen": None, "vertical_ok": False, "hoop_xywh": None}
 
         try:
             H = Homography(np.array(img_pts, dtype=np.float32),
-                           np.array(tac_pts, dtype=np.float32))  # image -> tactical
+                           np.array(tac_pts, dtype=np.float32))
             lh_img = H.inverse_transform_points(self._lh_tv)[0]
             rh_img = H.inverse_transform_points(self._rh_tv)[0]
             lh = (float(lh_img[0]), float(lh_img[1]))
             rh = (float(rh_img[0]), float(rh_img[1]))
         except Exception:
-            return {"frame": fname, "LH": None, "RH": None, "chosen": None, "vertical_ok": False}
+            return {"frame": fname, "LH": None, "RH": None, "chosen": None, "vertical_ok": False, "hoop_xywh": None}
 
-        # --- read bbox as (xc, yc, w, h) directly ---
         bbox_c = hoop.get("bbox") if isinstance(hoop, dict) else None
         if not bbox_c or len(bbox_c) != 4:
-            return {"frame": fname,
-                    "LH": [round(lh[0], 1), round(lh[1], 1)],
-                    "RH": [round(rh[0], 1), round(rh[1], 1)],
-                    "chosen": None, "vertical_ok": False}
+            return {
+                "frame": fname,
+                "LH": [round(lh[0], 1), round(lh[1], 1)],
+                "RH": [round(rh[0], 1), round(rh[1], 1)],
+                "chosen": None,
+                "vertical_ok": False,
+                "hoop_xywh": None
+            }
 
         rim_mid = rim_top_mid_from_cxcywh(bbox_c)
         chosen = _select_shadow_nearest_x(rim_mid[0], lh, rh)
         ok = bool(chosen and _vertical_ok(rim_mid, chosen, self.angle_thresh_deg, self.min_dy_px))
+        xywh = _xywh_from_center(bbox_c)
         return {
             "frame": fname,
             "LH": [round(lh[0],1), round(lh[1],1)],
@@ -134,19 +137,26 @@ class HoopShadowForEvent:
             "chosen": [round(chosen[0],1), round(chosen[1],1)] if chosen else None,
             "vertical_ok": ok,
             "rim_top_mid": [round(rim_mid[0], 1), round(rim_mid[1], 1)],
+            "hoop_xywh": xywh
         }
 
     def compute_for_event(self, scoring_event: Dict[str, Any]) -> List[Dict[str, Any]]:
         ev_id = scoring_event.get("event_id") or scoring_event.get("scoring_event_count")
         window = _read_pose_window_for_event(ev_id, self.pose_jsonl_path)
         frames = [fr.get("frame") for fr in window.get("frames", []) if fr.get("frame")]
-        if not frames: return []
+        if not frames:
+            return []
 
         rows = [self._project_one_frame(fn) for fn in frames]
 
         if self.write_output:
-            with open(self.out_path, "a", encoding="utf-8") as fout:
+            with open(self.viz_out_path, "w", encoding="utf-8") as vout:
                 for r in rows:
-                    fout.write(json.dumps({"event_id": ev_id, **r}) + "\n")
+                    vout.write(json.dumps({
+                        "frame": r.get("frame"),
+                        "hoop": {"xywh": r.get("hoop_xywh")},
+                        "shadow": r.get("chosen")
+                    }) + "\n")
+
         return rows
 

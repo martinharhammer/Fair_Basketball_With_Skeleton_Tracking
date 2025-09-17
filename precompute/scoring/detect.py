@@ -1,4 +1,4 @@
-import os, json, cv2
+import os, json
 from precompute.helpers.frame_source import FrameSource
 from precompute.helpers.progress import ProgressLogger
 
@@ -29,8 +29,9 @@ def main():
     hoop_jsonl = hoop_cfg["out_jsonl"]
     ball_jsonl = ball_cfg["out_jsonl"]
     out_path   = scoring_cfg["out_jsonl"]
-    VIS        = bool(scoring_cfg.get("visualize", False))
-    out_folder = scoring_cfg.get("viz_dir", "output")
+
+    VIZ_SCORING = bool(C["viz"]["scoring"]["visualize"])
+    frames_out_path = C["viz"]["scoring"]["frames_out_jsonl"]
 
     hoop_det = {}
     with open(hoop_jsonl, "r", encoding="utf-8") as f:
@@ -48,14 +49,17 @@ def main():
 
     src = FrameSource(video_path=video_path)
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-    os.makedirs(out_folder, exist_ok=True)
+    if VIZ_SCORING:
+        os.makedirs(os.path.dirname(frames_out_path) or ".", exist_ok=True)
 
     logger = ProgressLogger(prefix="Scoring", total=src.count or None, log_every=50)
 
+    jf_frames = open(frames_out_path, "w", encoding="utf-8") if VIZ_SCORING else None
     with open(out_path, "w", encoding="utf-8") as jf:
         for idx, fname, img in src:
             H, W = (img.shape[0], img.shape[1]) if img is not None else (1080, 1920)
             cx=cy=bw=bh=None; above=below=None; bx_c=by_c=None
+            in_above=False; in_below=False
 
             if fname in hoop_det:
                 cx,cy,bw,bh = map(float, hoop_det[fname])
@@ -99,14 +103,37 @@ def main():
                     elif frames_left <= 0:
                         state = "IDLE"; ref_bw = ref_bh = None
 
-            if VIS and img is not None:
-                if above:  cv2.rectangle(img, (above[0],above[1]), (above[0]+above[2], above[1]+above[3]), (0,255,0),1)
-                if below:  cv2.rectangle(img, (below[0],below[1]), (below[0]+below[2], below[1]+below[3]), (0,255,0),1)
-                cv2.imwrite(os.path.join(out_folder, fname), img)
+            if VIZ_SCORING and jf_frames is not None:
+                frame_record = {
+                    "frame": fname,
+                    "idx": idx,
+                    "state": state,
+                    "flags": {"in_above": bool(in_above), "in_below": bool(in_below)},
+                    "hoop": None,
+                    "zones": None,
+                    "ball": None
+                }
+                if cx is not None:
+                    frame_record["hoop"] = {"xywh": [bx, by, bw, bh]}
+                if above is not None and below is not None:
+                    frame_record["zones"] = {
+                        "above_xywh": [int(above[0]), int(above[1]), int(above[2]), int(above[3])],
+                        "below_xywh": [int(below[0]), int(below[1]), int(below[2]), int(below[3])]
+                    }
+                if (bx_c is not None) and (by_c is not None):
+                    frame_record["ball"] = {"x": int(bx_c), "y": int(by_c)}
+
+                jf_frames.write(json.dumps(frame_record) + "\n")
 
             logger.tick()
 
-    logger.done(f"Output saved: {out_path}")
+    if jf_frames is not None:
+        jf_frames.close()
+
+    msg = f"Event log: {out_path}"
+    if VIZ_SCORING:
+        msg += f" | Per-frame log: {frames_out_path}"
+    logger.done(msg)
 
 if __name__ == "__main__":
     main()

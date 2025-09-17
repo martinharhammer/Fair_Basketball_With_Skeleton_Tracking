@@ -1,5 +1,5 @@
 {
-  "video_path": "precompute/video/seg12_cut.mp4",
+  "video_path": "precompute/video/full_game.mp4",
   "frames_dir": "precompute/frames/010",
 
   "ball": {
@@ -63,11 +63,25 @@
   "hoop_shadow": {
     "out_jsonl": "output/game_logic/hoop_detections.jsonl"
   },
+
   "game_logic": {
     "summary_out_jsonl": "output/game_logic/summary.jsonl",
     "score_input_json": "output/game_logic/score_input.json",
     "fair_score": "output/fair_score.txt",
     "viz_dir": "output/game_logic/hoop_shadow_viz"
+  },
+
+  "viz": {
+    "scoring": {
+      "visualize": false,
+      "frames_out_jsonl": "viz/drawers/scoring/scoring_detection.jsonl",
+      "viz_path": "viz/output"
+    },
+
+    "height": {
+      "visualize": false,
+      "frames_out_jsonl": "viz/drawers/height/height_estimation.jsonl",
+      "viz_path": "viz/output"
+    }
   }
 }
-
