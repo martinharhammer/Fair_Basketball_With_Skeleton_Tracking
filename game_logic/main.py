@@ -9,7 +9,6 @@ from .utils.geom import get_center_of_bbox, get_bbox_width, measure_distance, ge
 from .utils.video import get_video_fps_strict
 
 from .identify_shooter import IdentifyShooter
-from .distance_to_hoop_drawer import DistanceToHoopDrawer
 from .assign_team import HoopSideTeamAssigner
 from .height_estimation.hoop_shadow import HoopShadowForEvent
 from .homography.tactical_view_converter import TacticalViewConverter
@@ -35,7 +34,6 @@ court_jsonl_path = resolve(C["court"]["out_jsonl"])
 summary_out_jsonl = resolve(C["game_logic"]["summary_out_jsonl"])
 score_input_json  = resolve(C["game_logic"]["score_input_json"])
 final_score_txt   = resolve(C["game_logic"]["fair_score"])
-viz_dir           = resolve(C["game_logic"]["viz_dir"])
 hoop_shadow_out   = resolve(C["hoop_shadow"]["out_jsonl"])
 
 # ------------------ INSTANTIATE ------------------
@@ -54,15 +52,9 @@ estimator = HeightEstimator(
     nose_to_vertex_add_m=0.10,
 )
 hoop_side_assigner = HoopSideTeamAssigner(config_path=CONFIG_ABS)
-drawer = DistanceToHoopDrawer(
-    config_path=CONFIG_ABS,
-    out_root=viz_dir,
-    require_vertical_ok=False,
-)
 
 ensure_dir(os.path.dirname(summary_out_jsonl))
 ensure_dir(os.path.dirname(score_input_json))
-ensure_dir(viz_dir)
 
 # ------------------ FRAME ORDER FROM JSONLs ------------------
 frame_order = collect_frames_from_jsonls(pose_jsonl_path, court_jsonl_path, scoring_jsonl)
@@ -94,7 +86,6 @@ def main():
             )
 
             if no_shooter:
-                # choose a stable frame for ordering/timestamp
                 frame_for_ts = ev.get("frame") or ev.get("trigger_frame")
                 ts = None
                 if frame_for_ts:
@@ -128,10 +119,8 @@ def main():
                 continue
 
             shooter_frame = result.get("shooter_frame") or result.get("frame") or ev.get("frame")
-            #print(result)
 
             shadow_rows = shadow.compute_for_event(ev)
-            # _written = drawer.draw_for_event(ev, shadow_rows=shadow_rows)
 
             height_est = estimator.estimate_for_event(ev, shadow_rows, result)
             assigned_team = hoop_side_assigner.assign(trigger_frame=shooter_frame)
@@ -173,7 +162,6 @@ def main():
                 "points_label": points_label,
                 "points_reason": points_reason,
             }
-            #print(summary)
             out_f.write(json.dumps(summary) + "\n")
 
     # ---- write the compact scoring input JSON (already in loop order) ----

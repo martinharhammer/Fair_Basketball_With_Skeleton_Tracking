@@ -32,9 +32,7 @@
 
   "scoring": {
     "module": "precompute.scoring.detect",
-    "out_jsonl": "output/precompute/scoring_detections.jsonl",
-    "visualize": false,
-    "viz_dir": "output/scoring_viz"
+    "out_jsonl": "output/precompute/scoring_detections.jsonl"
   },
 
   "pose": {
