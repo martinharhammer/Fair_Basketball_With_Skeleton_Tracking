@@ -5,7 +5,7 @@
 </p>
 
 ## Overview
-This project was carried out as part of my bachelor thesis.  The goal was to apply computer vision techniques to basketball game recordings in order to re-evaluate scoring fairness by incorporating player height into the scoring process.
+This project was carried out as part of my bachelor thesis.  The goal was to apply computer vision techniques to basketball game recordings in order to re-evaluate scoring outcome by incorporating player height into the scoring process.
 
 The emphasis of the work lies on the application of computer vision methods rather than on designing the fairest possible scoring system, since official player heights are already known and could be used in simpler ways. Instead, the project demonstrates how skeleton tracking and geometric reasoning can be leveraged to estimate player heights directly from video footage and how this estimation can be used to weight scoring events and create a fair score.
 
@@ -23,7 +23,7 @@ The precompute stage applies several detection models to the video frames.
 
 Ball tracking is implemented with a minimal version of the [WASB-SBDT approach](https://github.com/nttcom/WASB-SBDT). To adapt the model to the basketball used in FIBA competitions, the Molten BG5000, additional fine-tuning was conducted. The distinctive white panel of the BG5000 proved challenging for the base model, frequently resulting in misdetections. Finetuning the model on this ball substantially improved detection robustness. Inference is performed using HRNet, applied over sliding windows of three consecutive frames. HRNet generates heatmaps in which local maxima correspond to candidate ball positions. By enforcing temporal consistency across consecutive frames, outlier detections that deviate significantly from the trajectory are suppressed, resulting in stable and reliable ball tracking.
 
-In addition to the ball, the hoop and court keypoints are detected with YOLO-based models. Player skeletons are estimated using OpenPose in the Pose25 format. Because OpenPose is both slow and produces large outputs, it is only run in a backtracking window around scoring events, not on the full video. All detections are written to JSONL files so that later analysis can be repeated without rerunning the heavy inference stage.
+In addition to the ball, the hoop and court keypoints are detected with YOLO-based models. Player skeletons are estimated using OpenPose in the Pose25 format. Given OpenPose’s high compute cost and large intermediates, it’s applied only in a limited backtracking window around scoring events, not across the entire video. All detections are written to JSONL files so that later analysis can be repeated without rerunning the heavy inference stage.
 
 ### Game Logic Stage
 In the **game logic stage**, the detection of scoring events is implemented using a finite-state machine. A valid scoring sequence requires the ball to appear in a zone above the hoop, trigger a change in the hoop bounding box that indicates the ball passing through the net, and subsequently appear in a zone below the hoop.
@@ -47,11 +47,11 @@ Finally, the estimated player heights are used to compute a new **fair score**. 
 ## Results
 The system successfully recognized 80 out of 88 scoring events in the analyzed video, which demonstrates that the scoring event detection pipeline is generally reliable.  
 
-Height estimation was reasonably accurate for the majority of scoring events, but several cases showed noticeable underestimation. To mitigate these cases, a clamping strategy was introduced to restrict estimated heights to a plausible range. The inaccuracies are likely attributable to inconsistencies in the court keypoint detections, which affect the computation of the hoop shadow point and thereby the reference height. In addition, the current approach does not explicitly compensate for perspective changes or for variations in player positioning on the court. These factors contribute cumulatively to the observed errors. 
+Height estimation was reasonably accurate for the majority of scoring events, but several cases showed noticeable underestimation. To mitigate these cases, a clamping strategy was introduced to restrict estimated heights to a plausible range. The inaccuracies are likely attributable to inconsistencies in the court keypoint detections, which affect the computation of the hoop shadow point and thereby the reference height. In addition, the current approach does not explicitly compensate for perspective changes or for variations in player posture. These factors contribute cumulatively to the observed errors. 
 
 While the approach works as a proof of concept, there is still room to make it more reliable. More stable court detections, handling perspective change, and taking the shooting player’s pose into account would help reduce errors and make the fair score calculation more consistent.
 
-That being said, the final fair score in the analyzed game was **92–73 in favor of China**. The original score was **109–50**, so the adjusted fair score reduces the margin but does not change the overall outcome, with China remaining the winner.
+That being said, the final fair score in the analyzed game was **92–73 in favor of China**. The original score was 109–50, so the adjusted fair score narrows the gap but doesn’t change the overall outcome, with China remaining the winner.
 
 ## Usage
 
