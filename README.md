@@ -7,7 +7,7 @@
 ## Overview
 This project was carried out as part of my bachelor thesis.  The goal was to apply computer vision techniques to basketball game recordings in order to re-evaluate scoring fairness by incorporating player height into the scoring process.
 
-The emphasis of the work lies on the application of computer vision methods rather than on designing the fairest possible scoring system, since official player heights are already known and could be used in simpler ways. Instead, the project demonstrates how skeleton tracking and geometric reasoning can be leveraged to estimate player heights directly from video footage and how this estimation can be used to weight scoring events.
+The emphasis of the work lies on the application of computer vision methods rather than on designing the fairest possible scoring system, since official player heights are already known and could be used in simpler ways. Instead, the project demonstrates how skeleton tracking and geometric reasoning can be leveraged to estimate player heights directly from video footage and how this estimation can be used to weight scoring events and create a fair score.
 
 The main goals were:
 - Detection of scoring events  
@@ -36,7 +36,7 @@ Once a scoring event is detected, the responsible shooter is identified by backt
 
 The type of score is then determined through a set of heuristics. Three-point shots are classified when the number of frames between the identified shooter frame and the final scoring trigger exceeds a threshold, reflecting longer-distance attempts. Free throws (one point) are identified when the shooter’s ankle keypoints lie close to the free-throw line, which is localized using court keypoints. All other cases are categorized as two-point field goals.
 
-Player height estimation is performed using court homography. A homography of the court is first computed following approaches from prior basketball analysis work, and by applying the inverse homography the hoop position is projected onto the ground plane, producing the _hoop shadow point_. With this reference, the vertical distance from the floor to the hoop is set to 3.05 m. The shooter’s height is then estimated by comparing their OpenPose skeleton dimensions to this calibrated reference, providing a relative height estimate directly from the video.
+Player height estimation is performed using court homography. A homography of the court is first computed by adapting the homography procedure from [abdullahtarek/basketball_analysis](https://github.com/abdullahtarek/basketball_analysis), and by applying the inverse homography the hoop position is projected onto the ground plane, producing the _hoop shadow point_. With this reference, the vertical distance from the floor to the hoop is set to 3.05 m. The shooter’s height is then estimated by comparing their OpenPose skeleton dimensions to this calibrated reference, providing a relative height estimate directly from the video.
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/1b2de49f-b09f-45ec-8d8a-65c0fcf662a6" alt="viz_height_gif" />
