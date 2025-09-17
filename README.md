@@ -25,11 +25,13 @@ In addition to the ball, the hoop and court keypoints are detected with YOLO-bas
 In the **game logic stage**, the detection of scoring events is implemented using a finite-state machine. A valid scoring sequence requires the ball to appear in a zone above the hoop, trigger a change in the hoop bounding box that indicates the ball passing through the net, and subsequently appear in a zone below the hoop.
 
 Once a scoring event is detected, the responsible shooter is identified by backtracking the ball trajectory and comparing its coordinates to the wrist positions of player skeletons obtained from OpenPose. If the ball passes within a defined distance of a player’s wrist, that skeleton is assigned as the shooter.
+
 ![viz_scoring_gif](https://github.com/user-attachments/assets/6723b138-4813-4872-a18d-65adf020912d)
 
 The type of score is then determined through a set of heuristics. Three-point shots are classified when the number of frames between the identified shooter frame and the final scoring trigger exceeds a threshold, reflecting longer-distance attempts. Free throws (one point) are identified when the shooter’s ankle keypoints lie close to the free-throw line, which is localized using court keypoints. All other cases are categorized as two-point field goals.
 
 Player height estimation is performed using court homography. A homography of the court is first computed following approaches from prior basketball analysis work, and by applying the inverse homography the hoop position is projected onto the ground plane, producing the _hoop shadow point_. With this reference, the vertical distance from the floor to the hoop is set to 3.05 m. The shooter’s height is then estimated by comparing their OpenPose skeleton dimensions to this calibrated reference, providing a relative height estimate directly from the video.
+
 ![viz_height_gif](https://github.com/user-attachments/assets/1b2de49f-b09f-45ec-8d8a-65c0fcf662a6)
 
 Finally, the estimated player heights are used to compute a new **fair score**. Each scoring event is reweighted with an _easiness factor_ that favors shorter players and slightly penalizes taller ones. Heights are first clamped to a reasonable range (160–225 cm), and the median height of all players serves as the neutral reference point. At this median height, the factor is 1.0. Players shorter than the median receive a boost of up to +50%, while taller players can receive a reduction of up to −50%. Events with missing height default to a neutral factor. The weighted points are then aggregated per team to produce an adjusted final fair score.
