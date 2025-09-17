@@ -6,7 +6,7 @@ import cv2
 from torch.utils.data import Dataset
 from pycocotools.coco import COCO
 from PIL import Image
-from heatmap import gen_heatmap  # 🔁 uses WASB repo logic
+from heatmap import gen_heatmap
 from preprocessing import ResizeWithEqualScale, SeqTransformCompose
 
 class BallCOCODataset(Dataset):
@@ -57,7 +57,6 @@ class BallCOCODataset(Dataset):
 
         r = np.sqrt(w * h) * 0.15
 
-        # Rescale center based on input resizing (mimics WASB repo behavior)
         orig_w, orig_h = info['width'], info['height']
         if self.inp_h / self.inp_w >= orig_h / orig_w:
             new_w = self.inp_w
@@ -71,7 +70,6 @@ class BallCOCODataset(Dataset):
         cx = cx * (new_w / orig_w) + pad_x
         cy = cy * (new_h / orig_h) + pad_y
 
-        # Guard for invalid coords
         if not (0 <= cx < self.inp_w) or not (0 <= cy < self.inp_h):
             print(f"[WARN] Center outside bounds in {mid_name}: ({cx:.1f}, {cy:.1f})")
             return self.__getitem__((idx + 1) % len(self))

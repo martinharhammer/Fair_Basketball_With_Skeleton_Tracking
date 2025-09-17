@@ -1,4 +1,3 @@
-# game_logic/assign_team_from_hoop.py
 import os, json, re, cv2
 from typing import Optional, Dict, Any
 
@@ -46,14 +45,6 @@ def _parse_bool(x: Any, default: bool=False) -> bool:
     return default
 
 class HoopSideTeamAssigner:
-    """
-    Usage:
-        assigner = HoopSideTeamAssigner()
-        team = assigner.assign(trigger_frame="frame_012345.png")
-        # or provide event time explicitly:
-        team = assigner.assign("frame_012345.png", event_seconds=2134.8)
-        team = assigner.assign("frame_012345.png", timestamp_hms="00:35:02")
-    """
     def __init__(self, config_path: str = CONFIG_PATH):
         with open(config_path, "r", encoding="utf-8") as f:
             C = json.load(f)
@@ -99,15 +90,6 @@ class HoopSideTeamAssigner:
         event_seconds: Optional[float] = None,
         timestamp_hms: Optional[str] = None,
     ) -> str:
-        """
-        Returns team string based on hoop side at trigger_frame.
-        Rule: hoop on LEFT  -> points to right_side team (at that time)
-              hoop on RIGHT -> points to left_side team  (at that time)
-        Applies halftime side switch if configured.
-
-        event_seconds / timestamp_hms (optional):
-          If provided, use these for halftime switching. Otherwise fallback to idx/fps.
-        """
         if not trigger_frame:
             return "UNKNOWN"
 

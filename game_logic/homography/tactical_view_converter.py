@@ -6,8 +6,6 @@ import cv2
 from copy import deepcopy
 from .homography import Homography
 
-#folder_path = pathlib.Path(__file__).parent.resolve()
-#sys.path.append(os.path.join(folder_path,"../"))
 from ..utils.geom import get_foot_position, measure_distance
 
 class TacticalViewConverter:
@@ -53,8 +51,6 @@ class TacticalViewConverter:
     RIGHT_IDX = [10,11,12,13,14,15,16,17]
     SWAP_MAP = {0:10, 1:11, 2:12, 3:13, 4:14, 5:15, 8:16, 9:17,
                 10:0, 11:1, 12:2, 13:3, 14:4, 15:5, 16:8, 17:9}
-
-    # ...
 
     def _maybe_flip_sides(self, frame_keypoints_xy, image_width=None, margin_px=0):
         """

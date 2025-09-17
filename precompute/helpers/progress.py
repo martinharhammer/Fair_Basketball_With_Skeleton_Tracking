@@ -1,17 +1,8 @@
-# precompute/helpers/progress.py
 from __future__ import annotations
 from time import time
 from typing import Optional
 
 class ProgressLogger:
-    """
-    Lightweight periodic logger:
-      logger = ProgressLogger("Ball", total=1000, log_every=50)
-      ...
-      logger.tick()  # call once per unit of work
-      ...
-      logger.done("Done! Wrote detections → path.jsonl")
-    """
     def __init__(
         self,
         prefix: str,

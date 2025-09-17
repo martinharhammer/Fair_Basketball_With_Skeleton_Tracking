@@ -29,7 +29,7 @@ def load_per_frame(path):
                 by_idx[int(idx)] = obj
     return by_idx
 
-def draw_rect_xywh(img, xywh, color, thickness=1):
+def draw_rect_xywh(img, xywh, color, thickness=2):
     x, y, w, h = map(int, xywh)
     cv2.rectangle(img, (x, y), (x + w, y + h), color, thickness, lineType=cv2.LINE_AA)
 
@@ -105,13 +105,13 @@ def main():
             hoop = rec.get("hoop") or {}
             xywh = hoop.get("xywh")
             if xywh:
-                draw_rect_xywh(frame, xywh, col_hoop, 1)
+                draw_rect_xywh(frame, xywh, col_hoop, 2)
 
             zones = rec.get("zones") or {}
             above = zones.get("above_xywh")
             below = zones.get("below_xywh")
-            if above: draw_rect_xywh(frame, above, col_above, 1)
-            if below: draw_rect_xywh(frame, below, col_below, 1)
+            if above: draw_rect_xywh(frame, above, col_above, 2)
+            if below: draw_rect_xywh(frame, below, col_below, 2)
 
             ball = rec.get("ball")
             if ball and (ball.get("x") is not None) and (ball.get("y") is not None):

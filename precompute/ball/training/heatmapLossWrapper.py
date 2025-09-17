@@ -1,11 +1,6 @@
 from torch import nn
 
 from bce import BCELoss
-#from .wbce import WBCELoss
-#from .focal_loss import BinaryFocalLoss
-#from .dice_loss import DiceLoss
-#from .combo_loss import ComboLoss
-#from .quality_focal_loss import QualityFocalLoss
 from utils import _sigmoid
 
 class HeatmapLoss(nn.Module):
