@@ -1,7 +1,7 @@
 # Fair Basketball With Skeleton Tracking
 ![viz1](https://github.com/user-attachments/assets/c767902e-7a83-4688-abe2-a12e216668da)
 ## Overview
-This project was carried out as part of my bachelor thesis.  The goal was to apply computer vision techniques to basketball game recordings in order to re-evaluate scoring fairness by incorporating player height into the scoring process. While the original assignment proposed analyzing multiple games, this implementation focuses on a single video.
+This project was carried out as part of my bachelor thesis.  The goal was to apply computer vision techniques to basketball game recordings in order to re-evaluate scoring fairness by incorporating player height into the scoring process.
 
 The emphasis of the work lies on the application of computer vision methods rather than on designing the fairest possible scoring system, since official player heights are already known and could be used in simpler ways. Instead, the project demonstrates how skeleton tracking and geometric reasoning can be leveraged to estimate player heights directly from video footage and how this estimation can be used to weight scoring events.
 
