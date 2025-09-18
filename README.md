@@ -64,14 +64,14 @@ conda activate env
 ```
 bash scripts/build_openpose.sh
 ```
-3. Run the game logic
+3. Run the game logic<br>
 This uses the precomputed outputs already included in the repository
 ```
 python -m game_logic
 ```
 4. (Optional) Recompute on the current game or precompute on a new game recording
-Place video at the configured path (e.g., `precompute/video/<name>.mp4`).
-Place required models at their configured locations (see `config.json`).
+Place video at the configured path (e.g., `precompute/video/<name>.mp4`).<br>
+Place required models at their configured locations (see `config.json`).<br>
    - Works best with the Molten BG5000 ball.
    - Cut out replays to avoid double counting.
    - Processing can take hours depending on video length.
