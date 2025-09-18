@@ -57,7 +57,7 @@ That being said, the final fair score in the analyzed game was **92–73 in favo
 
 1. Create and activate environment First create the environment from the provided YAML file and activate it:
 ```
-bash conda env create -f environment.yml
+conda env create -f environment.yml
 conda activate env
 ```
 2. Build OpenPose (once)
