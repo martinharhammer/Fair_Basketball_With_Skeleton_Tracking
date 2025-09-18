@@ -69,14 +69,13 @@ This uses the precomputed outputs already included in the repository
 ```
 python -m game_logic
 ```
-4. (Optional) Run precompute on a new video
-To process your own game video:
-Upload Video to path
-Upload Models to path
-- Works best with the Molten BG5000 ball.
-- Cut out replays to avoid double counting.
-- Processing can take several hours depending on video length.
-- Specify metadata (which team starts where, halftime timestamp) in the config.
+4. (Optional) Recompute on the current game or precompute on a new game recording
+Place video at the configured path (e.g., `precompute/video/<name>.mp4`).
+Place required models at their configured locations (see `config.json`).
+   - Works best with the Molten BG5000 ball.
+   - Cut out replays to avoid double counting.
+   - Processing can take hours depending on video length.
+   - Specify metadata (which team starts where, halftime timestamp) in `config.json`.
 Then run:
 ```
 python -m precompute.runner
